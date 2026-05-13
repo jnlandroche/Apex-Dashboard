@@ -3,13 +3,20 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: 5SK Apex Legends Squad Dashboard API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: players
+    description: Player management
+  - name: snapshots
+    description: Stat snapshot operations
+  - name: dashboard
+    description: Dashboard summary operations
+
 paths:
   /healthz:
     get:
@@ -24,6 +31,188 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /players:
+    get:
+      operationId: getPlayers
+      tags: [players]
+      summary: List all players
+      responses:
+        "200":
+          description: List of players
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Player"
+    post:
+      operationId: addPlayer
+      tags: [players]
+      summary: Add a new player (validates against Apex API)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlayerInput"
+      responses:
+        "201":
+          description: Player added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+        "400":
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /players/{id}:
+    delete:
+      operationId: deletePlayer
+      tags: [players]
+      summary: Remove a player
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Player deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /players/{id}/toggle:
+    patch:
+      operationId: togglePlayer
+      tags: [players]
+      summary: Toggle player active status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Player updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Player"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /snapshots:
+    get:
+      operationId: getSnapshots
+      tags: [snapshots]
+      summary: Get recent stat snapshots
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 250
+        - name: playerId
+          in: query
+          schema:
+            type: ["integer", "null"]
+      responses:
+        "200":
+          description: List of snapshots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Snapshot"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get latest stats for all active players (dashboard view)
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/leaderboard:
+    get:
+      operationId: getLeaderboard
+      tags: [dashboard]
+      summary: Get players ranked by RP
+      responses:
+        "200":
+          description: Leaderboard
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlayerStats"
+
+  /dashboard/trends:
+    get:
+      operationId: getTrends
+      tags: [dashboard]
+      summary: Get rank score trends over time per player
+      responses:
+        "200":
+          description: Trend data per player
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PlayerTrend"
+
+  /poll:
+    post:
+      operationId: pollStats
+      tags: [snapshots]
+      summary: Refresh stats for all active players from Apex API
+      responses:
+        "200":
+          description: Poll results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PollResult"
+        "500":
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +223,169 @@ components:
       required:
         - status
 
+    ApiError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    DeleteResult:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+
+    Player:
+      type: object
+      required: [id, name, platform, active, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        platform:
+          type: string
+        uid:
+          type: ["string", "null"]
+        avatar:
+          type: ["string", "null"]
+        active:
+          type: boolean
+        createdAt:
+          type: string
+
+    PlayerInput:
+      type: object
+      required: [name, platform]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        platform:
+          type: string
+          enum: [PC, X1, PS4, SWITCH]
+        apiKey:
+          type: ["string", "null"]
+
+    Snapshot:
+      type: object
+      required: [id, playerId, capturedAt]
+      properties:
+        id:
+          type: integer
+        playerId:
+          type: integer
+        playerName:
+          type: ["string", "null"]
+        capturedAt:
+          type: string
+        rankName:
+          type: ["string", "null"]
+        rankScore:
+          type: ["integer", "null"]
+        level:
+          type: ["integer", "null"]
+        kills:
+          type: ["integer", "null"]
+        damage:
+          type: ["integer", "null"]
+        kd:
+          type: ["number", "null"]
+
+    PlayerStats:
+      type: object
+      required: [playerId, name, platform]
+      properties:
+        playerId:
+          type: integer
+        name:
+          type: string
+        platform:
+          type: string
+        avatar:
+          type: ["string", "null"]
+        capturedAt:
+          type: ["string", "null"]
+        rankName:
+          type: ["string", "null"]
+        rankScore:
+          type: ["integer", "null"]
+        level:
+          type: ["integer", "null"]
+        kills:
+          type: ["integer", "null"]
+        damage:
+          type: ["integer", "null"]
+        kd:
+          type: ["number", "null"]
+
+    DashboardSummary:
+      type: object
+      required: [playerCount, totalKills, totalDamage, topRankedPlayer, topKillsPlayer, squadStats]
+      properties:
+        playerCount:
+          type: integer
+        totalKills:
+          type: integer
+        totalDamage:
+          type: integer
+        topRankedPlayer:
+          type: ["string", "null"]
+        topRankedRank:
+          type: ["string", "null"]
+        topKillsPlayer:
+          type: ["string", "null"]
+        squadStats:
+          type: array
+          items:
+            $ref: "#/components/schemas/PlayerStats"
+
+    PlayerTrend:
+      type: object
+      required: [playerId, name, dataPoints]
+      properties:
+        playerId:
+          type: integer
+        name:
+          type: string
+        dataPoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/TrendPoint"
+
+    TrendPoint:
+      type: object
+      required: [capturedAt, rankScore]
+      properties:
+        capturedAt:
+          type: string
+        rankScore:
+          type: integer
+        kills:
+          type: ["integer", "null"]
+        damage:
+          type: ["integer", "null"]
+
+    PollResult:
+      type: object
+      required: [ok, results]
+      properties:
+        ok:
+          type: boolean
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/PollPlayerResult"
+
+    PollPlayerResult:
+      type: object
+      required: [name, status]
+      properties:
+        name:
+          type: string
+        status:
+          type: string
+        error:
+          type: ["string", "null"]

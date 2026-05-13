@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "5SK Apex Dashboard"
+version = "1.0.0"
+id = "artifacts/apex-dashboard"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18211
+
+[services.development]
+run = "pnpm --filter @workspace/apex-dashboard run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/apex-dashboard", "run", "build" ]
+publicDir = "artifacts/apex-dashboard/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18211"
+BASE_PATH = "/"
