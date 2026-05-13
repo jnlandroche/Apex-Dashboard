@@ -11,6 +11,8 @@ import {
   Clock,
   Star,
   ChevronDown,
+  Copy,
+  Check,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -157,14 +159,77 @@ export function SessionReport() {
   const hasData = reports.length > 0;
   const sameSnapshot = reports.some((r) => r.from.id === r.to.id);
 
+  const [copied, setCopied] = useState(false);
+
+  function buildDiscordSummary() {
+    const rangeLabel =
+      activeQuick > 0
+        ? `Last ${activeQuick >= 24 ? activeQuick / 24 + "d" : activeQuick + "h"}`
+        : `${fromDate.toLocaleString()} → ${toDate.toLocaleString()}`;
+
+    const lines: string[] = [
+      `🎮 **5SK Apex Legends — Session Report** (${rangeLabel})`,
+      "",
+    ];
+
+    if (sessionWinner && reports.length > 1) {
+      lines.push(`🏆 **Session Winner: ${sessionWinner.name}**`);
+      const parts = [];
+      if (sessionWinner.rpDelta !== 0) parts.push(`${sessionWinner.rpDelta > 0 ? "+" : ""}${sessionWinner.rpDelta.toLocaleString()} RP`);
+      if (sessionWinner.killsDelta > 0) parts.push(`+${sessionWinner.killsDelta.toLocaleString()} kills`);
+      if (sessionWinner.damageDelta > 0) parts.push(`+${sessionWinner.damageDelta.toLocaleString()} dmg`);
+      if (parts.length) lines.push(`> ${parts.join(" | ")}`);
+      lines.push("");
+    }
+
+    lines.push("**Squad Stats:**");
+    for (const r of reports) {
+      const rpStr = r.rpDelta === 0 ? "±0 RP" : `${r.rpDelta > 0 ? "+" : ""}${r.rpDelta.toLocaleString()} RP`;
+      const killStr = r.killsDelta === 0 ? "" : ` | ${r.killsDelta > 0 ? "+" : ""}${r.killsDelta.toLocaleString()} kills`;
+      const dmgStr = r.damageDelta === 0 ? "" : ` | ${r.damageDelta > 0 ? "+" : ""}${r.damageDelta.toLocaleString()} dmg`;
+      const kdStr = r.kdDelta !== 0 ? ` | K/D ${r.kdDelta > 0 ? "+" : ""}${r.kdDelta.toFixed(2)}` : "";
+      lines.push(`• **${r.name}** — ${r.to.rankName ?? "?"} ${rpStr}${killStr}${dmgStr}${kdStr}`);
+    }
+
+    return lines.join("\n");
+  }
+
+  function handleCopy() {
+    const text = buildDiscordSummary();
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    });
+  }
+
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Session Report</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Compare squad stats between any two points in time.
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Session Report</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            Compare squad stats between any two points in time.
+          </p>
+        </div>
+        {hasData && (
+          <button
+            onClick={handleCopy}
+            className="flex items-center gap-2 shrink-0 px-4 py-2 rounded-lg border border-border bg-card text-sm font-medium hover:bg-white/[0.04] transition-colors"
+          >
+            {copied ? (
+              <>
+                <Check size={14} className="text-emerald-400" />
+                <span className="text-emerald-400">Copied!</span>
+              </>
+            ) : (
+              <>
+                <Copy size={14} className="text-primary" />
+                Copy for Discord
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Range picker */}
