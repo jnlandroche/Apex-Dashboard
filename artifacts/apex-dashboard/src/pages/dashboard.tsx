@@ -2,9 +2,11 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetDashboardSummary,
+  useGetTrends,
   getGetDashboardSummaryQueryKey,
   getGetLeaderboardQueryKey,
   getGetSnapshotsQueryKey,
+  getGetTrendsQueryKey,
   usePollStats,
 } from "@workspace/api-client-react";
 import {
@@ -15,12 +17,12 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
+  LineChart,
+  Line,
   Legend,
+  ReferenceLine,
 } from "recharts";
-import { RefreshCw, Users, Trophy, Crosshair, Zap } from "lucide-react";
+import { RefreshCw, Users, Trophy, Crosshair, Zap, TrendingUp, Target, Shield } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 function fmt(n: number | null | undefined) {
@@ -28,22 +30,38 @@ function fmt(n: number | null | undefined) {
   return n.toLocaleString();
 }
 
-const CHART_COLORS = ["#22d3ee", "#f59e0b", "#f43f5e", "#8b5cf6", "#10b981"];
+const PLAYER_COLORS = ["#22d3ee", "#f59e0b", "#f43f5e", "#8b5cf6", "#10b981"];
+
+const TOOLTIP_STYLE = {
+  contentStyle: {
+    background: "hsl(222,47%,9%)",
+    border: "1px solid hsl(217,32%,17%)",
+    borderRadius: 8,
+    color: "#e2e8f0",
+    fontSize: 12,
+  },
+};
 
 export function Dashboard() {
   const { data, isLoading } = useGetDashboardSummary();
+  const { data: trends } = useGetTrends();
   const pollStats = usePollStats();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [polling, setPolling] = useState(false);
 
   const squad = data?.squadStats ?? [];
-  const chartData = squad.map((p) => ({
+
+  const barData = squad.map((p) => ({
     name: p.name,
-    rank_score: p.rankScore ?? 0,
-    kills: p.kills ?? 0,
-    damage: p.damage ?? 0,
+    RP: p.rankScore ?? 0,
+    Kills: p.kills ?? 0,
+    Damage: Math.round((p.damage ?? 0) / 1000),
+    KD: p.kd ?? 0,
   }));
+
+  const trendChartData = buildTrendChartData(trends ?? []);
+  const playerNames = (trends ?? []).map((t) => t.name);
 
   async function handleRefresh() {
     setPolling(true);
@@ -56,6 +74,7 @@ export function Dashboard() {
           queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetLeaderboardQueryKey() });
           queryClient.invalidateQueries({ queryKey: getGetSnapshotsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetTrendsQueryKey() });
           toast({
             title: errors > 0 ? "Partial refresh" : "Stats refreshed",
             description:
@@ -83,11 +102,16 @@ export function Dashboard() {
             <div key={i} className="h-28 rounded-2xl bg-card animate-pulse" />
           ))}
         </div>
+        <div className="grid gap-6 xl:grid-cols-2">
+          <div className="h-72 rounded-2xl bg-card animate-pulse" />
+          <div className="h-72 rounded-2xl bg-card animate-pulse" />
+        </div>
       </div>
     );
   }
 
   const noPlayers = squad.length === 0;
+  const hasTrends = trendChartData.length > 1;
 
   return (
     <div className="space-y-8">
@@ -155,67 +179,134 @@ export function Dashboard() {
         </div>
       ) : (
         <>
-          {/* Charts */}
-          <section className="grid gap-6 xl:grid-cols-2">
-            <div className="rounded-2xl border border-border bg-card p-5">
-              <h2 className="text-base font-semibold mb-4 text-foreground">Rank Score by Player</h2>
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.1)" />
-                    <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 12 }} />
-                    <YAxis stroke="#64748b" tick={{ fontSize: 12 }} />
-                    <Tooltip
-                      contentStyle={{
-                        background: "hsl(222,47%,9%)",
-                        border: "1px solid hsl(217,32%,17%)",
-                        borderRadius: 8,
-                        color: "#e2e8f0",
-                      }}
-                    />
-                    <Bar dataKey="rank_score" fill="#22d3ee" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+          {/* RP Trend — only show if ≥2 snapshots exist */}
+          {hasTrends && (
+            <section className="rounded-2xl border border-border bg-card p-5">
+              <div className="flex items-center gap-2 mb-4">
+                <TrendingUp size={16} className="text-primary" />
+                <h2 className="text-base font-semibold">RP Progression Over Time</h2>
               </div>
-            </div>
-            <div className="rounded-2xl border border-border bg-card p-5">
-              <h2 className="text-base font-semibold mb-4 text-foreground">Kill Share</h2>
               <div className="h-72">
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={chartData}
-                      dataKey="kills"
-                      nameKey="name"
-                      outerRadius={90}
-                      label={({ name, percent }) =>
-                        `${name} ${(percent * 100).toFixed(0)}%`
-                      }
-                      labelLine={false}
-                    >
-                      {chartData.map((_, i) => (
-                        <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{
-                        background: "hsl(222,47%,9%)",
-                        border: "1px solid hsl(217,32%,17%)",
-                        borderRadius: 8,
-                        color: "#e2e8f0",
-                      }}
+                  <LineChart data={trendChartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+                    <XAxis
+                      dataKey="label"
+                      stroke="#64748b"
+                      tick={{ fontSize: 11 }}
+                      interval="preserveStartEnd"
                     />
+                    <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                    <Tooltip {...TOOLTIP_STYLE} />
                     <Legend />
-                  </PieChart>
+                    {playerNames.map((name, i) => (
+                      <Line
+                        key={name}
+                        type="monotone"
+                        dataKey={name}
+                        stroke={PLAYER_COLORS[i % PLAYER_COLORS.length]}
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: PLAYER_COLORS[i % PLAYER_COLORS.length] }}
+                        activeDot={{ r: 5 }}
+                        connectNulls
+                      />
+                    ))}
+                  </LineChart>
                 </ResponsiveContainer>
               </div>
+            </section>
+          )}
+
+          {/* Comparison charts row */}
+          <section className="grid gap-6 xl:grid-cols-3">
+            {/* RP bar */}
+            <ChartCard title="Rank Points" icon={<Trophy size={14} className="text-primary" />}>
+              <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+                <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                <Tooltip {...TOOLTIP_STYLE} />
+                <Bar dataKey="RP" radius={[6, 6, 0, 0]}>
+                  {barData.map((_, i) => (
+                    <rect key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ChartCard>
+
+            {/* Kills bar */}
+            <ChartCard title="Total Kills" icon={<Crosshair size={14} className="text-primary" />}>
+              <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+                <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                <Tooltip {...TOOLTIP_STYLE} />
+                <Bar dataKey="Kills" fill="#f43f5e" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ChartCard>
+
+            {/* Damage bar */}
+            <ChartCard title="Damage (thousands)" icon={<Zap size={14} className="text-primary" />}>
+              <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
+                <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+                <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${v}k`, "Damage"]} />
+                <Bar dataKey="Damage" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ChartCard>
+          </section>
+
+          {/* K/D and per-player cards */}
+          <section className="grid gap-6 xl:grid-cols-2">
+            {/* K/D */}
+            <ChartCard title="K/D Ratio" icon={<Target size={14} className="text-primary" />}>
+              <BarChart data={barData} layout="vertical" margin={{ top: 4, right: 16, left: 40, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" horizontal={false} />
+                <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} width={70} />
+                <Tooltip {...TOOLTIP_STYLE} />
+                <ReferenceLine x={1} stroke="#64748b" strokeDasharray="4 4" label={{ value: "1.0", fill: "#64748b", fontSize: 10 }} />
+                <Bar dataKey="KD" fill="#10b981" radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ChartCard>
+
+            {/* Player cards */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 mb-2">
+                <Shield size={14} className="text-primary" />
+                <h2 className="text-base font-semibold">Player Breakdown</h2>
+              </div>
+              {squad.map((p, i) => (
+                <div
+                  key={p.playerId}
+                  className="rounded-xl border border-border bg-background p-4 flex items-center gap-4"
+                >
+                  <div
+                    className="w-1 self-stretch rounded-full"
+                    style={{ background: PLAYER_COLORS[i % PLAYER_COLORS.length] }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold truncate">{p.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {p.rankName ?? "Unknown"} · Level {p.level ?? "—"}
+                    </div>
+                  </div>
+                  <div className="flex gap-4 text-right">
+                    <Pill label="RP" value={fmt(p.rankScore)} color="text-cyan-400" />
+                    <Pill label="Kills" value={fmt(p.kills)} color="text-rose-400" />
+                    <Pill label="K/D" value={p.kd != null ? p.kd.toFixed(2) : "—"} color="text-emerald-400" />
+                    <Pill label="Dmg" value={p.damage ? `${(p.damage / 1000).toFixed(0)}k` : "—"} color="text-violet-400" />
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
 
           {/* Squad table */}
           <section className="rounded-2xl border border-border bg-card overflow-hidden">
             <div className="p-5 border-b border-border">
-              <h2 className="text-base font-semibold">Current Squad Snapshot</h2>
+              <h2 className="text-base font-semibold">Full Squad Snapshot</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -227,6 +318,7 @@ export function Dashboard() {
                     <th className="text-left p-4">Level</th>
                     <th className="text-left p-4">Kills</th>
                     <th className="text-left p-4">Damage</th>
+                    <th className="text-left p-4">K/D</th>
                     <th className="text-left p-4">Last Update</th>
                   </tr>
                 </thead>
@@ -243,6 +335,7 @@ export function Dashboard() {
                       <td className="p-4">{fmt(s.level)}</td>
                       <td className="p-4">{fmt(s.kills)}</td>
                       <td className="p-4">{fmt(s.damage)}</td>
+                      <td className="p-4 font-mono">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
                       <td className="p-4 text-muted-foreground text-xs">
                         {s.capturedAt ? new Date(s.capturedAt).toLocaleString() : "—"}
                       </td>
@@ -254,6 +347,80 @@ export function Dashboard() {
           </section>
         </>
       )}
+    </div>
+  );
+}
+
+function buildTrendChartData(
+  trends: Array<{ name: string; dataPoints: Array<{ capturedAt: string; rankScore: number }> }>,
+) {
+  if (!trends.length) return [];
+
+  const allTimes = new Set<string>();
+  const byPlayer: Record<string, Record<string, number>> = {};
+
+  for (const t of trends) {
+    byPlayer[t.name] = {};
+    for (const dp of t.dataPoints) {
+      const label = formatTrendLabel(dp.capturedAt);
+      allTimes.add(dp.capturedAt);
+      byPlayer[t.name][dp.capturedAt] = dp.rankScore;
+    }
+  }
+
+  const sorted = [...allTimes].sort();
+  return sorted.map((ts) => {
+    const row: Record<string, string | number> = { label: formatTrendLabel(ts) };
+    for (const t of trends) {
+      const val = byPlayer[t.name][ts];
+      if (val !== undefined) row[t.name] = val;
+    }
+    return row;
+  });
+}
+
+function formatTrendLabel(iso: string) {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function ChartCard({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        {icon}
+        <h2 className="text-base font-semibold">{title}</h2>
+      </div>
+      <div className="h-56">
+        <ResponsiveContainer width="100%" height="100%">
+          {children as React.ReactElement}
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function Pill({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color?: string;
+}) {
+  return (
+    <div className="text-right">
+      <div className={`text-sm font-bold ${color ?? ""}`}>{value}</div>
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</div>
     </div>
   );
 }
