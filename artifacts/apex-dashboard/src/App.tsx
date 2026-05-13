@@ -10,6 +10,7 @@ import { Players } from "@/pages/players";
 import { Leaderboard } from "@/pages/leaderboard";
 import { Snapshots } from "@/pages/snapshots";
 import { Settings } from "@/pages/settings";
+import { SessionReport } from "@/pages/session-report";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,6 +28,7 @@ function Router() {
         <Route path="/" component={Dashboard} />
         <Route path="/players" component={Players} />
         <Route path="/leaderboard" component={Leaderboard} />
+        <Route path="/session" component={SessionReport} />
         <Route path="/snapshots" component={Snapshots} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />

@@ -1,0 +1,441 @@
+import { useState, useMemo } from "react";
+import { useGetSnapshots } from "@workspace/api-client-react";
+import {
+  TrendingUp,
+  TrendingDown,
+  Minus,
+  Trophy,
+  Crosshair,
+  Zap,
+  Target,
+  Clock,
+  Star,
+  ChevronDown,
+} from "lucide-react";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type Snapshot = {
+  id: number;
+  playerId: number;
+  playerName: string | null;
+  capturedAt: string;
+  rankName: string | null;
+  rankScore: number | null;
+  level: number | null;
+  kills: number | null;
+  damage: number | null;
+  kd: number | null;
+};
+
+type PlayerReport = {
+  playerId: number;
+  name: string;
+  from: Snapshot;
+  to: Snapshot;
+  rpDelta: number;
+  killsDelta: number;
+  damageDelta: number;
+  kdDelta: number;
+  colorIdx: number;
+};
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const PLAYER_COLORS = ["#22d3ee", "#f59e0b", "#f43f5e", "#8b5cf6", "#10b981"];
+
+const QUICK_RANGES = [
+  { label: "Last 1h", hours: 1 },
+  { label: "Last 4h", hours: 4 },
+  { label: "Last 8h", hours: 8 },
+  { label: "Last 24h", hours: 24 },
+  { label: "Last 48h", hours: 48 },
+  { label: "Last 7d", hours: 24 * 7 },
+];
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmt(n: number | null | undefined) {
+  if (n == null) return "—";
+  return n.toLocaleString();
+}
+
+function fmtDelta(n: number, suffix = "") {
+  if (n === 0) return `0${suffix}`;
+  return `${n > 0 ? "+" : ""}${n.toLocaleString()}${suffix}`;
+}
+
+function toLocalDatetimeValue(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+// Find the most recent snapshot at or before a given time
+function closestBefore(snaps: Snapshot[], time: Date): Snapshot | null {
+  const ts = time.getTime();
+  const candidates = snaps.filter((s) => new Date(s.capturedAt).getTime() <= ts);
+  if (!candidates.length) return null;
+  return candidates.reduce((best, s) =>
+    new Date(s.capturedAt).getTime() > new Date(best.capturedAt).getTime() ? s : best,
+  );
+}
+
+// Find the closest snapshot to a time (either direction)
+function closestTo(snaps: Snapshot[], time: Date): Snapshot | null {
+  if (!snaps.length) return null;
+  const ts = time.getTime();
+  return snaps.reduce((best, s) => {
+    const da = Math.abs(new Date(s.capturedAt).getTime() - ts);
+    const db = Math.abs(new Date(best.capturedAt).getTime() - ts);
+    return da < db ? s : best;
+  });
+}
+
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export function SessionReport() {
+  const { data: allSnapshots, isLoading } = useGetSnapshots();
+
+  // Default: last 8 hours
+  const [fromDate, setFromDate] = useState<Date>(() => new Date(Date.now() - 8 * 60 * 60 * 1000));
+  const [toDate, setToDate] = useState<Date>(() => new Date());
+  const [activeQuick, setActiveQuick] = useState<number>(8);
+
+  function applyQuick(hours: number) {
+    setActiveQuick(hours);
+    setFromDate(new Date(Date.now() - hours * 60 * 60 * 1000));
+    setToDate(new Date());
+  }
+
+  // Group snapshots by player (sorted oldest-first per player)
+  const byPlayer = useMemo(() => {
+    const map = new Map<number, Snapshot[]>();
+    for (const s of (allSnapshots ?? []) as Snapshot[]) {
+      if (!map.has(s.playerId)) map.set(s.playerId, []);
+      map.get(s.playerId)!.push(s);
+    }
+    // Sort each player's snapshots oldest-first
+    for (const snaps of map.values()) {
+      snaps.sort((a, b) => new Date(a.capturedAt).getTime() - new Date(b.capturedAt).getTime());
+    }
+    return map;
+  }, [allSnapshots]);
+
+  // Build per-player reports
+  const reports = useMemo<PlayerReport[]>(() => {
+    const results: PlayerReport[] = [];
+    let colorIdx = 0;
+
+    for (const [playerId, snaps] of byPlayer) {
+      const name = snaps[0]?.playerName ?? `Player ${playerId}`;
+
+      // "from" = closest snapshot at or before fromDate (fall back to closest overall)
+      const fromSnap = closestBefore(snaps, fromDate) ?? closestTo(snaps, fromDate);
+      // "to" = closest snapshot at or before toDate
+      const toSnap = closestBefore(snaps, toDate) ?? closestTo(snaps, toDate);
+
+      if (!fromSnap || !toSnap) continue;
+
+      results.push({
+        playerId,
+        name,
+        from: fromSnap,
+        to: toSnap,
+        rpDelta: (toSnap.rankScore ?? 0) - (fromSnap.rankScore ?? 0),
+        killsDelta: (toSnap.kills ?? 0) - (fromSnap.kills ?? 0),
+        damageDelta: (toSnap.damage ?? 0) - (fromSnap.damage ?? 0),
+        kdDelta: Math.round(((toSnap.kd ?? 0) - (fromSnap.kd ?? 0)) * 100) / 100,
+        colorIdx: colorIdx++,
+      });
+    }
+
+    // Sort by RP delta descending
+    return results.sort((a, b) => b.rpDelta - a.rpDelta);
+  }, [byPlayer, fromDate, toDate]);
+
+  const sessionWinner = reports.find((r) => r.rpDelta > 0) ?? reports[0];
+  const hasData = reports.length > 0;
+  const sameSnapshot = reports.some((r) => r.from.id === r.to.id);
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div>
+        <h1 className="text-3xl font-bold tracking-tight">Session Report</h1>
+        <p className="text-muted-foreground mt-1 text-sm">
+          Compare squad stats between any two points in time.
+        </p>
+      </div>
+
+      {/* Range picker */}
+      <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <Clock size={15} className="text-primary" />
+          <h2 className="text-sm font-semibold">Session Window</h2>
+        </div>
+
+        {/* Quick ranges */}
+        <div className="flex flex-wrap gap-2">
+          {QUICK_RANGES.map((r) => (
+            <button
+              key={r.hours}
+              onClick={() => applyQuick(r.hours)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                activeQuick === r.hours
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background border border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom range */}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div>
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-1.5">
+              From
+            </label>
+            <input
+              type="datetime-local"
+              value={toLocalDatetimeValue(fromDate)}
+              onChange={(e) => {
+                setFromDate(new Date(e.target.value));
+                setActiveQuick(-1);
+              }}
+              className="w-full rounded-lg bg-background border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 [color-scheme:dark]"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground uppercase tracking-wide block mb-1.5">
+              To
+            </label>
+            <input
+              type="datetime-local"
+              value={toLocalDatetimeValue(toDate)}
+              onChange={(e) => {
+                setToDate(new Date(e.target.value));
+                setActiveQuick(-1);
+              }}
+              className="w-full rounded-lg bg-background border border-border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 [color-scheme:dark]"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Loading */}
+      {isLoading && (
+        <div className="space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-48 rounded-2xl bg-card animate-pulse" />
+          ))}
+        </div>
+      )}
+
+      {/* No data */}
+      {!isLoading && !hasData && (
+        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-muted-foreground">
+          No snapshots found in this window. Try a wider time range or refresh stats from the Dashboard.
+        </div>
+      )}
+
+      {/* Same snapshot warning */}
+      {!isLoading && hasData && sameSnapshot && (
+        <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 text-sm text-yellow-400 flex gap-2 items-start">
+          <ChevronDown size={15} className="shrink-0 mt-0.5 rotate-90" />
+          Some players have only one snapshot in this window — deltas will show as 0. Widen the range or wait for more snapshots to accumulate.
+        </div>
+      )}
+
+      {/* Session winner */}
+      {!isLoading && hasData && sessionWinner && reports.length > 1 && (
+        <div
+          className="rounded-2xl border bg-gradient-to-br from-slate-900 to-slate-800 p-6 relative overflow-hidden"
+          style={{ borderColor: PLAYER_COLORS[sessionWinner.colorIdx % PLAYER_COLORS.length] + "44" }}
+        >
+          <div
+            className="absolute inset-0 opacity-5"
+            style={{
+              background: `radial-gradient(ellipse at top left, ${PLAYER_COLORS[sessionWinner.colorIdx % PLAYER_COLORS.length]}, transparent 70%)`,
+            }}
+          />
+          <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
+            <div className="flex items-center gap-4">
+              <div
+                className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                style={{
+                  background: PLAYER_COLORS[sessionWinner.colorIdx % PLAYER_COLORS.length] + "22",
+                  border: `1.5px solid ${PLAYER_COLORS[sessionWinner.colorIdx % PLAYER_COLORS.length]}44`,
+                }}
+              >
+                <Star size={20} style={{ color: PLAYER_COLORS[sessionWinner.colorIdx % PLAYER_COLORS.length] }} />
+              </div>
+              <div>
+                <div className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground mb-0.5">
+                  Session Winner
+                </div>
+                <div
+                  className="text-2xl font-bold"
+                  style={{ color: PLAYER_COLORS[sessionWinner.colorIdx % PLAYER_COLORS.length] }}
+                >
+                  {sessionWinner.name}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {sessionWinner.to.rankName ?? "Unknown"} →{" "}
+                  <span className="text-foreground">{sessionWinner.to.rankName ?? "—"}</span>
+                </div>
+              </div>
+            </div>
+            <div className="sm:ml-auto flex gap-6 flex-wrap">
+              <WinnerStat label="RP" value={fmtDelta(sessionWinner.rpDelta)} positive={sessionWinner.rpDelta >= 0} />
+              <WinnerStat label="Kills" value={fmtDelta(sessionWinner.killsDelta)} positive={sessionWinner.killsDelta >= 0} />
+              <WinnerStat label="Damage" value={fmtDelta(sessionWinner.damageDelta)} positive={sessionWinner.damageDelta >= 0} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Player report cards */}
+      {!isLoading && hasData && (
+        <div className="space-y-4">
+          {reports.map((r) => (
+            <PlayerCard key={r.playerId} report={r} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Player report card ───────────────────────────────────────────────────────
+
+function PlayerCard({ report: r }: { report: PlayerReport }) {
+  const color = PLAYER_COLORS[r.colorIdx % PLAYER_COLORS.length];
+  const sameSnap = r.from.id === r.to.id;
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4 border-b border-border">
+        <div className="w-1 h-6 rounded-full" style={{ background: color }} />
+        <div className="font-bold text-lg">{r.name}</div>
+        <div className="ml-auto text-xs text-muted-foreground">
+          {new Date(r.from.capturedAt).toLocaleString()} → {new Date(r.to.capturedAt).toLocaleString()}
+        </div>
+      </div>
+
+      <div className="p-4 grid gap-4 md:grid-cols-[1fr_auto_1fr]">
+        {/* Start snapshot */}
+        <SnapshotSide label="Session Start" snap={r.from} />
+
+        {/* Deltas */}
+        <div className="flex md:flex-col gap-3 items-center justify-center py-2 md:py-0 md:px-4 border-t md:border-t-0 md:border-x border-border/60">
+          {sameSnap ? (
+            <div className="text-xs text-muted-foreground italic text-center">
+              Only 1 snapshot in window
+            </div>
+          ) : (
+            <>
+              <DeltaBadge icon={<Trophy size={12} />} label="RP" value={r.rpDelta} color={color} />
+              <DeltaBadge icon={<Crosshair size={12} />} label="Kills" value={r.killsDelta} />
+              <DeltaBadge icon={<Zap size={12} />} label="Damage" value={r.damageDelta} />
+              <DeltaBadge icon={<Target size={12} />} label="K/D" value={r.kdDelta} decimals={2} />
+            </>
+          )}
+        </div>
+
+        {/* End snapshot */}
+        <SnapshotSide label="Session End" snap={r.to} />
+      </div>
+    </div>
+  );
+}
+
+function SnapshotSide({ label, snap }: { label: string; snap: Snapshot }) {
+  return (
+    <div className="space-y-2">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wide font-mono">{label}</div>
+      <div className="grid grid-cols-2 gap-2">
+        <StatMini label="Rank" value={snap.rankName ?? "—"} />
+        <StatMini label="RP" value={fmt(snap.rankScore)} mono />
+        <StatMini label="Kills" value={fmt(snap.kills)} />
+        <StatMini label="Damage" value={fmt(snap.damage)} />
+        <StatMini label="K/D" value={snap.kd != null ? snap.kd.toFixed(2) : "—"} mono />
+        <StatMini label="Level" value={fmt(snap.level)} />
+      </div>
+    </div>
+  );
+}
+
+function StatMini({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-lg bg-background border border-border/60 px-2.5 py-2">
+      <div className="text-[9px] text-muted-foreground uppercase tracking-wide mb-0.5">{label}</div>
+      <div className={`text-sm font-semibold truncate ${mono ? "font-mono" : ""}`}>{value}</div>
+    </div>
+  );
+}
+
+function DeltaBadge({
+  icon,
+  label,
+  value,
+  decimals = 0,
+  color,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  decimals?: number;
+  color?: string;
+}) {
+  const isPos = value > 0;
+  const isNeg = value < 0;
+  const formatted =
+    decimals > 0
+      ? `${isPos ? "+" : ""}${value.toFixed(decimals)}`
+      : fmtDelta(value);
+
+  return (
+    <div className="flex flex-col items-center gap-0.5 min-w-[56px]">
+      <div className="flex items-center gap-1 text-[9px] text-muted-foreground uppercase tracking-wide">
+        {icon} {label}
+      </div>
+      <div
+        className="flex items-center gap-0.5 text-sm font-bold"
+        style={color && isPos ? { color } : undefined}
+      >
+        {isPos ? (
+          <TrendingUp size={11} className="shrink-0" style={color ? { color } : { color: "#10b981" }} />
+        ) : isNeg ? (
+          <TrendingDown size={11} className="shrink-0 text-rose-400" />
+        ) : (
+          <Minus size={11} className="shrink-0 text-muted-foreground" />
+        )}
+        <span className={isNeg ? "text-rose-400" : isPos ? "" : "text-muted-foreground"}>
+          {formatted}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function WinnerStat({
+  label,
+  value,
+  positive,
+}: {
+  label: string;
+  value: string;
+  positive: boolean;
+}) {
+  return (
+    <div className="text-center">
+      <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">{label}</div>
+      <div className={`text-xl font-bold ${positive ? "text-emerald-400" : "text-rose-400"}`}>
+        {value}
+      </div>
+    </div>
+  );
+}

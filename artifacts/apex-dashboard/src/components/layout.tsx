@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, Users, Trophy, History, Settings, Menu } from "lucide-react";
+import { Activity, Users, Trophy, History, Settings, Menu, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -12,6 +12,7 @@ const navItems = [
   { name: "Dashboard", href: "/", icon: Activity },
   { name: "Players", href: "/players", icon: Users },
   { name: "Leaderboard", href: "/leaderboard", icon: Trophy },
+  { name: "Session", href: "/session", icon: ClipboardList },
   { name: "Snapshots", href: "/snapshots", icon: History },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
