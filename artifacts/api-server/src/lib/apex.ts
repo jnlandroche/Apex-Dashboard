@@ -46,72 +46,51 @@ export async function fetchApexProfile(
   };
 }
 
-type TrackerEntry = { name?: string; key?: string; value?: number | string };
+type TotalEntry = { name?: string; value?: number | string };
 
-function findTracker(data: unknown[], keys: string[]): number {
-  const lowerKeys = keys.map((k) => k.toLowerCase());
-  const entry = (data as TrackerEntry[]).find(
-    (t) =>
-      lowerKeys.includes((t.key ?? "").toLowerCase()) ||
-      lowerKeys.includes((t.name ?? "").toLowerCase()),
-  );
-  return entry ? Number(entry.value ?? 0) : 0;
+function totalVal(
+  total: Record<string, TotalEntry>,
+  ...keys: string[]
+): number {
+  for (const key of keys) {
+    const entry = total[key];
+    if (entry?.value != null) {
+      const n = Number(entry.value);
+      if (!isNaN(n) && n >= 0) return n;
+    }
+  }
+  return 0;
 }
 
 export function extractMetrics(profile: ApexProfile) {
   const g = (profile.global as Record<string, unknown> | undefined) ?? {};
   const raw = profile.raw as Record<string, unknown>;
 
-  const legends = (raw.legends ?? {}) as Record<string, unknown>;
-  const all = (legends.all ?? {}) as Record<string, Record<string, unknown>>;
+  // `total` is the flat aggregated stat bag — most reliable source
+  const total = (raw.total ?? {}) as Record<string, TotalEntry>;
 
-  const globalLegend = all["Global"] ?? all["global"] ?? {};
-  const globalTrackers = Array.isArray(globalLegend.data)
-    ? (globalLegend.data as TrackerEntry[])
-    : [];
+  // kills: prefer specialEvent_kills (lifetime cross-legend), fallback kills
+  const kills = totalVal(total, "specialEvent_kills", "kills");
 
-  const selectedLegend = (
-    (legends.selected ?? {}) as Record<string, unknown>
-  );
-  const selectedTrackers = Array.isArray(selectedLegend.data)
-    ? (selectedLegend.data as TrackerEntry[])
-    : [];
+  // damage: prefer specialEvent_damage (lifetime cross-legend), fallback damage
+  const damage = totalVal(total, "specialEvent_damage", "damage");
 
-  const allTrackers = [...globalTrackers, ...selectedTrackers];
+  // wins
+  const wins = totalVal(total, "specialEvent_wins", "wins");
 
-  const kills =
-    findTracker(globalTrackers, ["kills", "Kills"]) ||
-    findTracker(selectedTrackers, ["kills", "Kills"]) ||
-    Number(
-      ((g.kills as Record<string, unknown> | undefined)?.value ?? g.kills ?? 0) as number,
-    );
-
-  const damage =
-    findTracker(globalTrackers, ["damage", "Damage"]) ||
-    findTracker(selectedTrackers, ["damage", "Damage"]) ||
-    Number(
-      ((g.damage as Record<string, unknown> | undefined)?.value ?? g.damage ?? 0) as number,
-    );
-
-  const wins =
-    findTracker(allTrackers, ["wins", "Wins", "br_wins"]) || 0;
-
-  const matches =
-    findTracker(allTrackers, ["matches played", "matches", "games played"]) || 0;
-
-  const rawKd = findTracker(allTrackers, ["k/d ratio", "kd", "k/d"]);
-  const kd =
-    rawKd ||
-    Number(
-      ((g.kd as Record<string, unknown> | undefined)?.value ?? g.kd ?? 0) as number,
-    ) ||
-    (kills > 0 && matches > 0 ? kills / matches : 0);
+  // K/D from total (may be -1 if hidden, fall back to computed)
+  const rawKd = totalVal(total, "kd");
+  const kd = rawKd > 0
+    ? Math.round(rawKd * 100) / 100
+    : kills > 0 && wins > 0
+      ? Math.round((kills / Math.max(wins, 1)) * 100) / 100
+      : 0;
 
   return {
     level: Number((g.level as number | undefined) ?? 0),
     kills,
     damage,
-    kd: Math.round(kd * 100) / 100,
+    kd,
     wins,
     rankName: profile.rankName ?? "Unknown",
     rankScore: Number(profile.rankScore ?? 0),

@@ -4,7 +4,6 @@ import playersRouter from "./players";
 import snapshotsRouter from "./snapshots";
 import dashboardRouter from "./dashboard";
 import pollRouter from "./poll";
-
 const router: IRouter = Router();
 
 router.use(healthRouter);
