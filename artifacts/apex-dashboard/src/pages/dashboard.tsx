@@ -36,6 +36,7 @@ import {
   Flame,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 function fmt(n: number | null | undefined) {
   if (n == null) return "—";
@@ -152,6 +153,7 @@ export function Dashboard() {
   const pollStats = usePollStats();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [polling, setPolling] = useState(false);
 
   const squad = data?.squadStats ?? [];
@@ -420,18 +422,23 @@ export function Dashboard() {
                       className="w-1 self-stretch rounded-full shrink-0"
                       style={{ background: PLAYER_COLORS[i % PLAYER_COLORS.length] }}
                     />
-                    <PlayerAvatar
-                      name={p.name}
-                      avatar={p.avatar}
-                      color={PLAYER_COLORS[i % PLAYER_COLORS.length]}
-                      size={38}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold truncate">{p.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {p.rankName ?? "Unknown"} · Level {p.level ?? "—"}
+                    <button
+                      onClick={() => navigate(`/players/${p.playerId}`)}
+                      className="flex items-center gap-3 group"
+                    >
+                      <PlayerAvatar
+                        name={p.name}
+                        avatar={p.avatar}
+                        color={PLAYER_COLORS[i % PLAYER_COLORS.length]}
+                        size={38}
+                      />
+                      <div className="text-left">
+                        <div className="font-bold group-hover:text-primary group-hover:underline underline-offset-2 transition-colors">{p.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {p.rankName ?? "Unknown"} · Level {p.level ?? "—"}
+                        </div>
                       </div>
-                    </div>
+                    </button>
                     <div className="flex gap-4 text-right">
                       <Pill label="RP" value={fmt(p.rankScore)} color="text-cyan-400" />
                       <Pill label="Kills" value={fmt(p.kills)} color="text-rose-400" />

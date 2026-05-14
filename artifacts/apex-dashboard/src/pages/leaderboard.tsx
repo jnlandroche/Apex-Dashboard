@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useGetLeaderboard } from "@workspace/api-client-react";
 import { Trophy } from "lucide-react";
+import { useLocation } from "wouter";
 
 function PlayerAvatar({ name, avatar, size = 32 }: { name: string; avatar?: string | null; size?: number }) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -55,6 +56,7 @@ function rankColor(rankName: string | null | undefined) {
 
 export function Leaderboard() {
   const { data: rows, isLoading } = useGetLeaderboard();
+  const [, navigate] = useLocation();
 
   return (
     <div className="space-y-6">
@@ -106,10 +108,13 @@ export function Leaderboard() {
                       )}
                     </td>
                     <td className="p-4">
-                      <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => navigate(`/players/${s.playerId}`)}
+                        className="flex items-center gap-3 hover:text-primary transition-colors group"
+                      >
                         <PlayerAvatar name={s.name} avatar={s.avatar} size={32} />
-                        <span className="font-bold">{s.name}</span>
-                      </div>
+                        <span className="font-bold group-hover:underline underline-offset-2">{s.name}</span>
+                      </button>
                     </td>
                     <td className={`p-4 font-medium ${rankColor(s.rankName)}`}>
                       {s.rankName ?? "—"}
