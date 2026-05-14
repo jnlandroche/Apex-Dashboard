@@ -69,13 +69,14 @@ export function extractMetrics(profile: ApexProfile) {
   // `total` is the flat aggregated stat bag — most reliable source
   const total = (raw.total ?? {}) as Record<string, TotalEntry>;
 
-  // kills: specialEvent_kills is the stable lifetime cross-legend total;
-  // plain "kills" is typically per-legend or per-season so we only use it as
-  // a fallback when specialEvent_kills is absent/zero.
-  const kills = totalVal(total, "specialEvent_kills", "kills");
+  // kills: use the plain "kills" tracker — this is the active, updating tracker
+  // that increments as the player plays. "specialEvent_kills" is a frozen
+  // old-season tracker that never updates; we only fall back to it when the
+  // active tracker is absent.
+  const kills = totalVal(total, "kills", "specialEvent_kills");
 
-  // damage: same logic — lifetime cross-legend total
-  const damage = totalVal(total, "specialEvent_damage", "damage");
+  // damage: same logic — plain "damage" is the actively updated tracker
+  const damage = totalVal(total, "damage", "specialEvent_damage");
 
   // wins
   const wins = totalVal(total, "specialEvent_wins", "wins");
