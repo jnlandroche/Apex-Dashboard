@@ -69,11 +69,12 @@ export function extractMetrics(profile: ApexProfile) {
   // `total` is the flat aggregated stat bag — most reliable source
   const total = (raw.total ?? {}) as Record<string, TotalEntry>;
 
-  // kills: use the plain "kills" tracker — this is the active, updating tracker
-  // that increments as the player plays. "specialEvent_kills" is a frozen
-  // old-season tracker that never updates; we only fall back to it when the
-  // active tracker is absent.
-  const kills = totalVal(total, "kills", "specialEvent_kills");
+  // kills: The Mozambique API uses inconsistent key names across players:
+  //   - "career_kills"       → all-time total, the most reliable live counter
+  //   - "specialEvent_kills" → often the broadest aggregate when career_kills absent
+  //   - "kills"              → per-player meaning varies (season badge, event, etc.)
+  // Priority: career_kills > specialEvent_kills > kills
+  const kills = totalVal(total, "career_kills", "specialEvent_kills", "kills");
 
   // damage: same logic — plain "damage" is the actively updated tracker
   const damage = totalVal(total, "damage", "specialEvent_damage");
