@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import { RankBadge } from "@/components/rank-badge";
 
 function fmt(n: number | null | undefined) {
   if (n == null) return "—";
@@ -436,7 +437,7 @@ export function Dashboard() {
                       <div className="text-left">
                         <div className="font-bold group-hover:text-primary group-hover:underline underline-offset-2 transition-colors">{p.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {p.rankName ?? "Unknown"} · Level {p.level ?? "—"}
+                          <RankBadge rankName={p.rankName} size={16} /> · Level {p.level ?? "—"}
                         </div>
                       </div>
                     </button>
@@ -478,7 +479,7 @@ export function Dashboard() {
                       className="border-b border-border/50 hover:bg-white/[0.02] transition-colors"
                     >
                       <td className="p-4 font-semibold text-foreground">{s.name}</td>
-                      <td className="p-4 text-muted-foreground">{s.rankName ?? "—"}</td>
+                      <td className="p-4"><RankBadge rankName={s.rankName} size={20} /></td>
                       <td className="p-4 text-primary font-mono">{fmt(s.rankScore)}</td>
                       <td className="p-4">{fmt(s.level)}</td>
                       <td className="p-4">{fmt(s.kills)}</td>

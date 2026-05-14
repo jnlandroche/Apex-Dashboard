@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useGetLeaderboard } from "@workspace/api-client-react";
 import { Trophy } from "lucide-react";
 import { useLocation } from "wouter";
+import { RankBadge } from "@/components/rank-badge";
 
 function PlayerAvatar({ name, avatar, size = 32 }: { name: string; avatar?: string | null; size?: number }) {
   const [imgFailed, setImgFailed] = useState(false);
@@ -32,26 +33,6 @@ function PlayerAvatar({ name, avatar, size = 32 }: { name: string; avatar?: stri
 function fmt(n: number | null | undefined) {
   if (n == null) return "—";
   return n.toLocaleString();
-}
-
-const RANK_COLORS: Record<string, string> = {
-  Rookie: "text-zinc-400",
-  Bronze: "text-orange-700",
-  Silver: "text-slate-400",
-  Gold: "text-yellow-400",
-  Platinum: "text-cyan-300",
-  Diamond: "text-blue-400",
-  Master: "text-purple-400",
-  Apex: "text-rose-400",
-  Predator: "text-rose-500",
-};
-
-function rankColor(rankName: string | null | undefined) {
-  if (!rankName) return "text-muted-foreground";
-  for (const key of Object.keys(RANK_COLORS)) {
-    if (rankName.toLowerCase().includes(key.toLowerCase())) return RANK_COLORS[key];
-  }
-  return "text-muted-foreground";
 }
 
 export function Leaderboard() {
@@ -116,8 +97,8 @@ export function Leaderboard() {
                         <span className="font-bold group-hover:underline underline-offset-2">{s.name}</span>
                       </button>
                     </td>
-                    <td className={`p-4 font-medium ${rankColor(s.rankName)}`}>
-                      {s.rankName ?? "—"}
+                    <td className="p-4">
+                      <RankBadge rankName={s.rankName} size={22} />
                     </td>
                     <td className="p-4 text-primary font-mono font-semibold">{fmt(s.rankScore)}</td>
                     <td className="p-4">{fmt(s.level)}</td>

@@ -14,6 +14,7 @@ import {
   Copy,
   Check,
 } from "lucide-react";
+import { RankBadge } from "@/components/rank-badge";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -358,9 +359,8 @@ export function SessionReport() {
                 >
                   {sessionWinner.name}
                 </div>
-                <div className="text-xs text-muted-foreground mt-0.5">
-                  {sessionWinner.to.rankName ?? "Unknown"} →{" "}
-                  <span className="text-foreground">{sessionWinner.to.rankName ?? "—"}</span>
+                <div className="mt-1">
+                  <RankBadge rankName={sessionWinner.to.rankName} size={20} />
                 </div>
               </div>
             </div>
@@ -463,7 +463,10 @@ function SnapshotSide({ label, snap }: { label: string; snap: Snapshot }) {
     <div className="space-y-2">
       <div className="text-[10px] text-muted-foreground uppercase tracking-wide font-mono">{label}</div>
       <div className="grid grid-cols-2 gap-2">
-        <StatMini label="Rank" value={snap.rankName ?? "—"} />
+        <div className="rounded-lg bg-background border border-border/60 px-2.5 py-2">
+          <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Rank</div>
+          <RankBadge rankName={snap.rankName} size={18} />
+        </div>
         <StatMini label="RP" value={fmt(snap.rankScore)} mono />
         <StatMini label="Kills" value={fmt(snap.kills)} />
         <StatMini label="Damage" value={fmt(snap.damage)} />

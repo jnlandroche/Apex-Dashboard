@@ -23,6 +23,7 @@ import {
   Gamepad2,
   Star,
 } from "lucide-react";
+import { RankBadge } from "@/components/rank-badge";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -59,25 +60,6 @@ function delta(snapshots: Snapshot[], key: keyof Snapshot): number | null {
   return last - first;
 }
 
-const RANK_COLORS: Record<string, string> = {
-  Rookie: "text-zinc-400",
-  Bronze: "text-orange-600",
-  Silver: "text-slate-400",
-  Gold: "text-yellow-400",
-  Platinum: "text-cyan-300",
-  Diamond: "text-blue-400",
-  Master: "text-purple-400",
-  Apex: "text-rose-400",
-  Predator: "text-rose-500",
-};
-
-function rankColor(rankName: string | null | undefined) {
-  if (!rankName) return "text-muted-foreground";
-  for (const key of Object.keys(RANK_COLORS)) {
-    if (rankName.toLowerCase().includes(key.toLowerCase())) return RANK_COLORS[key];
-  }
-  return "text-muted-foreground";
-}
 
 const TOOLTIP_STYLE = {
   contentStyle: {
@@ -270,10 +252,7 @@ export function PlayerProfile() {
         <div className="flex-1 min-w-0">
           <h1 className="text-3xl font-bold tracking-tight truncate">{name}</h1>
           <div className="flex flex-wrap items-center gap-3 mt-1.5">
-            <span className={`text-sm font-medium ${rankColor(latestSnap?.rankName ?? player?.rankName)}`}>
-              <Trophy size={12} className="inline mr-1" />
-              {latestSnap?.rankName ?? player?.rankName ?? "Unknown"}
-            </span>
+            <RankBadge rankName={latestSnap?.rankName ?? player?.rankName} size={26} />
             <span className="text-muted-foreground text-xs">·</span>
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Star size={11} />
@@ -437,8 +416,8 @@ export function PlayerProfile() {
                       <td className="p-4 text-xs text-muted-foreground font-mono">
                         {new Date(s.capturedAt).toLocaleString()}
                       </td>
-                      <td className={`p-4 font-medium ${rankColor(s.rankName)}`}>
-                        {s.rankName ?? "—"}
+                      <td className="p-4">
+                        <RankBadge rankName={s.rankName} size={18} />
                       </td>
                       <td className="p-4 text-primary font-mono font-semibold">{fmt(s.rankScore)}</td>
                       <td className="p-4">{fmt(s.level)}</td>
