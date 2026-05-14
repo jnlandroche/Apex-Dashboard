@@ -43,6 +43,15 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
       );
       const metrics = extractMetrics(profile);
 
+      // Skip saving if kills AND damage are both 0 — the API returned incomplete
+      // data (e.g. privacy-hidden profile or a failed stat extraction). Storing
+      // a zero snapshot would corrupt session deltas.
+      if (metrics.kills === 0 && metrics.damage === 0) {
+        logger.warn({ playerName: player.name }, "Skipping snapshot: kills and damage both 0 (incomplete API response)");
+        results.push({ name: player.name, status: "error", error: "Incomplete stats (kills=0, damage=0) — snapshot not saved" });
+        continue;
+      }
+
       await db.insert(statSnapshotsTable).values({
         playerId: player.id,
         rankName: metrics.rankName,

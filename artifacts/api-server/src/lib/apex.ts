@@ -78,13 +78,12 @@ export function extractMetrics(profile: ApexProfile) {
   // wins
   const wins = totalVal(total, "specialEvent_wins", "wins");
 
-  // K/D from total (may be -1 if hidden, fall back to computed)
-  const rawKd = totalVal(total, "kd");
-  const kd = rawKd > 0
-    ? Math.round(rawKd * 100) / 100
-    : kills > 0 && wins > 0
-      ? Math.round((kills / Math.max(wins, 1)) * 100) / 100
-      : 0;
+  // K/D from total — the API returns "-1" when the player has it hidden.
+  // We never compute a fake ratio from kills/wins because the badge-tracker
+  // win counts are per-legend or per-event and produce wildly wrong values.
+  const rawKdStr = (total["kd"] as TotalEntry | undefined)?.value;
+  const rawKd = rawKdStr != null ? Number(rawKdStr) : 0;
+  const kd: number | null = rawKd > 0 ? Math.round(rawKd * 100) / 100 : null;
 
   return {
     level: Number((g.level as number | undefined) ?? 0),
