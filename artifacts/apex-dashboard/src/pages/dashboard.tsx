@@ -317,24 +317,123 @@ export function Dashboard() {
 
   return (
     <div className="space-y-8">
-      {/* Hero header */}
-      <header className="rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-cyan-950 p-6 md:p-8 border border-border relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(34,211,238,0.08),transparent_70%)]" />
-        <div className="relative">
-          <div className="text-xs font-mono uppercase tracking-[0.3em] text-primary mb-2">
-            5SK Apex Legends
+      {/* Hero header — Apex-style gaming banner */}
+      <header className="rounded-2xl border border-red-900/40 relative overflow-hidden min-h-[200px] md:min-h-[220px]">
+        {/* Layer 1: base dark */}
+        <div className="absolute inset-0 bg-[#0a0a0f]" />
+
+        {/* Layer 2: directional gradients */}
+        <div className="absolute inset-0 bg-gradient-to-r from-red-950/60 via-slate-950/80 to-cyan-950/40" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/50" />
+
+        {/* Layer 3: radial glows */}
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_10%_50%,rgba(239,68,68,0.18),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_90%_20%,rgba(34,211,238,0.12),transparent_50%)]" />
+
+        {/* Layer 4: hexagon grid SVG */}
+        <svg
+          className="absolute inset-0 w-full h-full opacity-[0.06]"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <defs>
+            <pattern id="hex" x="0" y="0" width="56" height="48" patternUnits="userSpaceOnUse">
+              <polygon
+                points="28,2 52,14 52,38 28,50 4,38 4,14"
+                fill="none"
+                stroke="#ef4444"
+                strokeWidth="1"
+              />
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#hex)" />
+        </svg>
+
+        {/* Layer 5: diagonal slash accent */}
+        <div
+          className="absolute top-0 right-0 h-full w-1/2 opacity-10"
+          style={{
+            background:
+              "linear-gradient(105deg, transparent 40%, rgba(239,68,68,0.6) 40.5%, rgba(239,68,68,0.3) 41%, transparent 41.5%)",
+          }}
+        />
+        <div
+          className="absolute top-0 right-0 h-full w-1/2 opacity-8"
+          style={{
+            background:
+              "linear-gradient(105deg, transparent 50%, rgba(34,211,238,0.4) 50.5%, rgba(34,211,238,0.15) 51%, transparent 51.5%)",
+          }}
+        />
+
+        {/* Layer 6: scan-line texture */}
+        <div
+          className="absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage:
+              "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.8) 2px, rgba(255,255,255,0.8) 3px)",
+          }}
+        />
+
+        {/* HUD corner brackets */}
+        <div className="absolute top-3 left-3 w-6 h-6 border-t-2 border-l-2 border-red-500/60 rounded-tl" />
+        <div className="absolute top-3 right-3 w-6 h-6 border-t-2 border-r-2 border-red-500/60 rounded-tr" />
+        <div className="absolute bottom-3 left-3 w-6 h-6 border-b-2 border-l-2 border-cyan-500/40 rounded-bl" />
+        <div className="absolute bottom-3 right-3 w-6 h-6 border-b-2 border-r-2 border-cyan-500/40 rounded-br" />
+
+        {/* Large faint Apex A watermark */}
+        <svg
+          className="absolute -right-8 -top-8 opacity-[0.04] select-none pointer-events-none"
+          width="340"
+          height="340"
+          viewBox="0 0 40 40"
+          fill="none"
+          xmlns="http://www.w3.org/2000/svg"
+        >
+          <path d="M20 2L37 11.5V28.5L20 38L3 28.5V11.5L20 2Z" fill="#ef4444" />
+          <line x1="13" y1="29" x2="20" y2="11" stroke="white" strokeWidth="2.8" strokeLinecap="round" />
+          <line x1="27" y1="29" x2="20" y2="11" stroke="white" strokeWidth="2.8" strokeLinecap="round" />
+          <line x1="15" y1="22" x2="25" y2="22" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
+        </svg>
+
+        {/* Content */}
+        <div className="relative z-10 p-6 md:p-8">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-1 h-4 bg-red-500 rounded-full" />
+            <span className="text-xs font-mono uppercase tracking-[0.35em] text-red-400/90">
+              5SK · Apex Legends
+            </span>
           </div>
-          <h1 className="text-3xl md:text-5xl font-bold tracking-tight">
-            Squad Command Center
+
+          <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-none">
+            <span className="text-white drop-shadow-[0_0_20px_rgba(239,68,68,0.4)]">
+              SQUAD{" "}
+            </span>
+            <span
+              className="bg-gradient-to-r from-red-400 via-orange-300 to-red-500 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(239,68,68,0.6)]"
+            >
+              COMMAND
+            </span>
+            <span className="text-white drop-shadow-[0_0_20px_rgba(239,68,68,0.4)]">
+              {" "}CENTER
+            </span>
           </h1>
-          <p className="mt-2 text-muted-foreground max-w-xl">
-            Track ranked progression, compare teammates, and build weekly MVP summaries from Apex Legends API snapshots.
-          </p>
+
+          <div className="mt-2 flex items-center gap-3">
+            <div className="h-px w-8 bg-red-500/60" />
+            <p className="text-sm text-slate-400 max-w-xl">
+              Track ranked progression, compare teammates, and review session performance from live Apex Legends API snapshots.
+            </p>
+          </div>
+
           <button
             data-testid="button-refresh-stats"
             onClick={handleRefresh}
             disabled={polling || noPlayers}
-            className="mt-5 flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground font-semibold text-sm hover:opacity-90 active:opacity-75 disabled:opacity-40 transition-opacity"
+            className="mt-6 flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm tracking-wide transition-all disabled:opacity-40 hover:scale-[1.02] active:scale-[0.98]"
+            style={{
+              background: "linear-gradient(135deg, #ef4444, #dc2626)",
+              boxShadow: "0 0 20px rgba(239,68,68,0.35), inset 0 1px 0 rgba(255,255,255,0.1)",
+              color: "white",
+            }}
           >
             <RefreshCw size={16} className={polling ? "animate-spin" : ""} />
             {polling ? "Refreshing..." : "Refresh Stats Now"}

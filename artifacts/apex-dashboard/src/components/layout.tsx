@@ -8,6 +8,42 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 
+function ApexIcon({ size = 32 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 40 40"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="Apex Legends"
+    >
+      {/* Outer hexagonal frame */}
+      <path
+        d="M20 2L37 11.5V28.5L20 38L3 28.5V11.5L20 2Z"
+        stroke="#ef4444"
+        strokeWidth="2"
+        fill="rgba(239,68,68,0.12)"
+      />
+      {/* Inner diamond accent */}
+      <path
+        d="M20 8L33 15.5V24.5L20 32L7 24.5V15.5L20 8Z"
+        fill="rgba(239,68,68,0.08)"
+        stroke="rgba(239,68,68,0.3)"
+        strokeWidth="0.5"
+      />
+      {/* A left stroke */}
+      <line x1="13" y1="29" x2="20" y2="11" stroke="#ef4444" strokeWidth="2.8" strokeLinecap="round" />
+      {/* A right stroke */}
+      <line x1="27" y1="29" x2="20" y2="11" stroke="#ef4444" strokeWidth="2.8" strokeLinecap="round" />
+      {/* A crossbar */}
+      <line x1="15" y1="22" x2="25" y2="22" stroke="#ef4444" strokeWidth="2.5" strokeLinecap="round" />
+      {/* Centre glow dot */}
+      <circle cx="20" cy="11" r="2" fill="#ef4444" opacity="0.9" />
+    </svg>
+  );
+}
+
 const navItems = [
   { name: "Dashboard", href: "/", icon: Activity },
   { name: "Players", href: "/players", icon: Users },
@@ -51,10 +87,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <aside className="hidden md:flex w-64 flex-col border-r border-border bg-card/50 backdrop-blur-sm relative z-10">
         <div className="p-6 border-b border-border">
           <div className="flex items-center gap-2 mb-1">
-            <div className="w-8 h-8 bg-primary rounded shadow-[0_0_15px_rgba(34,211,238,0.5)] flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-lg leading-none">5</span>
-            </div>
-            <h1 className="text-2xl font-bold text-primary tracking-tighter shadow-primary drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]">
+            <ApexIcon size={32} />
+            <h1 className="text-2xl font-bold text-primary tracking-tighter drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]">
               5SK
             </h1>
           </div>
@@ -71,9 +105,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         {/* Mobile Header */}
         <header className="md:hidden flex items-center justify-between p-4 border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-20">
           <div className="flex items-center gap-2">
-            <div className="w-6 h-6 bg-primary rounded shadow-[0_0_10px_rgba(34,211,238,0.5)] flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm leading-none">5</span>
-            </div>
+            <ApexIcon size={26} />
             <h1 className="text-xl font-bold text-primary tracking-tighter">5SK</h1>
           </div>
           <Sheet>
@@ -85,10 +117,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <SheetContent side="left" className="w-64 p-0 bg-background border-r-border">
               <div className="p-6 border-b border-border">
                 <div className="flex items-center gap-2 mb-1">
-                  <div className="w-8 h-8 bg-primary rounded shadow-[0_0_15px_rgba(34,211,238,0.5)] flex items-center justify-center">
-                    <span className="text-primary-foreground font-bold text-lg leading-none">5</span>
-                  </div>
-                  <h1 className="text-2xl font-bold text-primary tracking-tighter shadow-primary drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]">
+                  <ApexIcon size={32} />
+                  <h1 className="text-2xl font-bold text-primary tracking-tighter drop-shadow-[0_0_10px_rgba(34,211,238,0.4)]">
                     5SK
                   </h1>
                 </div>
