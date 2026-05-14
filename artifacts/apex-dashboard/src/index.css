@@ -67,56 +67,57 @@
 }
 
 :root, .dark {
-  --button-outline: rgba(255,255,255, .10);
+  --button-outline: rgba(255,255,255, .08);
   --badge-outline: rgba(255,255,255, .05);
   --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255,255,255, .04);
-  --elevate-2: rgba(255,255,255, .09);
+  --elevate-1: rgba(255,255,255, .03);
+  --elevate-2: rgba(255,255,255, .07);
 
-  /* Deep slate/navy background */
-  --background: 222 47% 7%;
-  --foreground: 210 40% 98%;
+  /* Near-black charcoal base */
+  --background: 220 47% 3%;
+  --foreground: 210 40% 97%;
 
-  --border: 217 32% 17%;
-  
-  /* Glassmorphism card effect base */
-  --card: 222 47% 9%;
-  --card-foreground: 210 40% 98%;
-  --card-border: 217 32% 17%;
+  --border: 220 20% 12%;
 
-  --sidebar: 222 47% 6%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 217 32% 17%;
-  --sidebar-primary: 188 86% 53%;
-  --sidebar-primary-foreground: 222 47% 11%;
-  --sidebar-accent: 217 32% 17%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 188 86% 53%;
+  /* Dark card */
+  --card: 220 40% 5%;
+  --card-foreground: 210 40% 97%;
+  --card-border: 220 20% 12%;
 
-  --popover: 222 47% 9%;
-  --popover-foreground: 210 40% 98%;
-  --popover-border: 217 32% 17%;
+  /* Darkest sidebar */
+  --sidebar: 220 47% 2%;
+  --sidebar-foreground: 210 40% 97%;
+  --sidebar-border: 220 20% 10%;
+  --sidebar-primary: 0 72% 51%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 220 30% 8%;
+  --sidebar-accent-foreground: 210 40% 97%;
+  --sidebar-ring: 0 72% 51%;
 
-  /* Cyan/Teal */
-  --primary: 188 86% 53%;
-  --primary-foreground: 222 47% 11%;
+  --popover: 220 40% 5%;
+  --popover-foreground: 210 40% 97%;
+  --popover-border: 220 20% 12%;
 
-  --secondary: 217 32% 17%;
-  --secondary-foreground: 210 40% 98%;
+  /* 5SK Deep Red */
+  --primary: 0 72% 51%;
+  --primary-foreground: 0 0% 100%;
 
-  --muted: 217 32% 17%;
-  --muted-foreground: 215 20.2% 65.1%;
+  --secondary: 220 30% 10%;
+  --secondary-foreground: 210 40% 97%;
 
-  --accent: 217 32% 17%;
-  --accent-foreground: 210 40% 98%;
+  --muted: 220 30% 10%;
+  --muted-foreground: 215 16% 50%;
 
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
+  --accent: 220 30% 10%;
+  --accent-foreground: 210 40% 97%;
 
-  --input: 217 32% 17%;
-  --ring: 188 86% 53%;
-  
-  /* Charts: cyan, amber, rose, violet, emerald */
+  --destructive: 0 84% 35%;
+  --destructive-foreground: 0 0% 100%;
+
+  --input: 220 30% 10%;
+  --ring: 0 72% 51%;
+
+  /* Charts: cyan, amber, rose, violet, emerald — kept for player color identity */
   --chart-1: 188 86% 53%;
   --chart-2: 38 92% 50%;
   --chart-3: 343 88% 60%;
@@ -126,18 +127,18 @@
   --app-font-sans: 'Space Mono', 'Inter', monospace;
   --app-font-serif: Georgia, serif;
   --app-font-mono: Menlo, monospace;
-  
-  --radius: 0.25rem;
-  
-  --shadow-2xs: 0px 2px 0px 0px rgba(0,0,0, 0.5);
-  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0, 0.5);
-  --shadow-sm: 0px 2px 0px 0px rgba(0,0,0, 0.5), 0px 1px 2px -1px rgba(0,0,0, 0.5);
-  --shadow: 0px 2px 0px 0px rgba(0,0,0, 0.5), 0px 1px 2px -1px rgba(0,0,0, 0.5);
-  --shadow-md: 0px 2px 0px 0px rgba(0,0,0, 0.5), 0px 2px 4px -1px rgba(0,0,0, 0.5);
-  --shadow-lg: 0px 2px 0px 0px rgba(0,0,0, 0.5), 0px 4px 6px -1px rgba(0,0,0, 0.5);
-  --shadow-xl: 0px 2px 0px 0px rgba(0,0,0, 0.5), 0px 8px 10px -1px rgba(0,0,0, 0.5);
-  --shadow-2xl: 0px 2px 0px 0px rgba(0,0,0, 0.5);
-  
+
+  --radius: 0.375rem;
+
+  --shadow-2xs: 0px 1px 0px 0px rgba(0,0,0, 0.7);
+  --shadow-xs: 0px 2px 0px 0px rgba(0,0,0, 0.7);
+  --shadow-sm: 0px 2px 4px 0px rgba(0,0,0, 0.6);
+  --shadow: 0px 4px 8px -1px rgba(0,0,0, 0.6);
+  --shadow-md: 0px 6px 12px -2px rgba(0,0,0, 0.6);
+  --shadow-lg: 0px 10px 20px -3px rgba(0,0,0, 0.6);
+  --shadow-xl: 0px 16px 30px -4px rgba(0,0,0, 0.6);
+  --shadow-2xl: 0px 24px 48px -6px rgba(0,0,0, 0.7);
+
   --tracking-normal: 0em;
   --spacing: 0.25rem;
 
@@ -164,5 +165,18 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(220, 38, 38, 0.3);
+    border-radius: 2px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(220, 38, 38, 0.5);
   }
 }

@@ -22,6 +22,10 @@ import {
   Line,
   Legend,
   ReferenceLine,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
 } from "recharts";
 import {
   RefreshCw,
@@ -30,45 +34,71 @@ import {
   Crosshair,
   Zap,
   TrendingUp,
+  TrendingDown,
   Target,
   Shield,
   Star,
   Swords,
   Flame,
+  Activity,
+  Clock,
+  ChevronRight,
+  Minus,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import { RankBadge } from "@/components/rank-badge";
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmt(n: number | null | undefined) {
   if (n == null) return "—";
   return n.toLocaleString();
 }
 
+function fmtK(n: number | null | undefined) {
+  if (n == null) return "—";
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
+}
+
+function timeAgo(iso: string) {
+  const diff = Date.now() - new Date(iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
+}
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
 const PLAYER_COLORS = ["#22d3ee", "#f59e0b", "#f43f5e", "#8b5cf6", "#10b981"];
 
 const QUICK_PERIODS = [
-  { key: "total", label: "Total",  ms: 0 },
-  { key: "1h",   label: "Last 1h", ms: 1 * 3_600_000 },
-  { key: "4h",   label: "Last 4h", ms: 4 * 3_600_000 },
-  { key: "8h",   label: "Last 8h", ms: 8 * 3_600_000 },
+  { key: "total", label: "Total",    ms: 0 },
+  { key: "1h",   label: "Last 1h",  ms: 1  * 3_600_000 },
+  { key: "4h",   label: "Last 4h",  ms: 4  * 3_600_000 },
+  { key: "8h",   label: "Last 8h",  ms: 8  * 3_600_000 },
   { key: "24h",  label: "Last 24h", ms: 24 * 3_600_000 },
   { key: "48h",  label: "Last 48h", ms: 48 * 3_600_000 },
-  { key: "7d",   label: "Last 7d",  ms: 7 * 24 * 3_600_000 },
+  { key: "7d",   label: "Last 7d",  ms: 7  * 24 * 3_600_000 },
 ] as const;
 type PeriodKey = typeof QUICK_PERIODS[number]["key"];
 
 const TOOLTIP_STYLE = {
   contentStyle: {
-    background: "hsl(222,47%,9%)",
-    border: "1px solid hsl(217,32%,17%)",
-    borderRadius: 8,
+    background: "#0a0a10",
+    border: "1px solid rgba(220,38,38,0.25)",
+    borderRadius: 6,
     color: "#e2e8f0",
     fontSize: 12,
   },
 };
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type TrendPlayer = {
   name: string;
@@ -76,20 +106,11 @@ type TrendPlayer = {
   dataPoints: Array<{ capturedAt: string; rankScore: number; kills?: number | null; damage?: number | null }>;
 };
 
-type MvpResult = {
-  name: string;
-  rpGained: number;
-  killsGained: number;
-  damageGained: number;
-  score: number;
-  snapshots: number;
-  color: string;
-};
-
 type SquadPlayer = {
   playerId: number;
   name: string;
   avatar?: string | null;
+  capturedAt?: string | null;
   rankName?: string | null;
   rankScore?: number | null;
   level?: number | null;
@@ -113,60 +134,57 @@ type SessionStats = {
   hasData: boolean;
 };
 
-// ─── Weekly MVP logic ─────────────────────────────────────────────────────────
+type MvpResult = {
+  name: string;
+  rpGained: number;
+  killsGained: number;
+  damageGained: number;
+  score: number;
+  snapshots: number;
+  color: string;
+};
 
-function computeWeeklyMvp(trends: TrendPlayer[], playerColors: string[]): MvpResult | null {
+type ActivityEntry = {
+  player: string;
+  playerId: number;
+  timestamp: string;
+  rpDelta: number;
+  killsDelta: number;
+  playerIndex: number;
+};
+
+// ─── Computation helpers ──────────────────────────────────────────────────────
+
+function computeWeeklyMvp(trends: TrendPlayer[]): MvpResult | null {
   const now = Date.now();
   const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-
   const candidates: MvpResult[] = [];
 
   trends.forEach((t, i) => {
-    const weekPoints = t.dataPoints.filter(
-      (dp) => new Date(dp.capturedAt).getTime() >= weekAgo,
-    );
+    const weekPoints = t.dataPoints.filter((dp) => new Date(dp.capturedAt).getTime() >= weekAgo);
     if (weekPoints.length < 2) return;
 
     const first = weekPoints[0];
     const last = weekPoints[weekPoints.length - 1];
-
     const rpGained = Math.max(0, last.rankScore - first.rankScore);
     const killsGained = Math.max(0, (last.kills ?? 0) - (first.kills ?? 0));
     const damageGained = Math.max(0, (last.damage ?? 0) - (first.damage ?? 0));
-
-    // Weighted score: RP counts most, then damage, then kills
     const score = rpGained * 1 + damageGained * 0.01 + killsGained * 10;
 
-    candidates.push({
-      name: t.name,
-      rpGained,
-      killsGained,
-      damageGained,
-      score,
-      snapshots: weekPoints.length,
-      color: PLAYER_COLORS[i % PLAYER_COLORS.length],
-    });
+    candidates.push({ name: t.name, rpGained, killsGained, damageGained, score, snapshots: weekPoints.length, color: PLAYER_COLORS[i % PLAYER_COLORS.length] });
   });
 
   if (!candidates.length) return null;
   return candidates.sort((a, b) => b.score - a.score)[0];
 }
 
-// ─── Session delta computation ────────────────────────────────────────────────
-
-function computeSessionStats(
-  trends: TrendPlayer[],
-  squad: SquadPlayer[],
-  periodMs: number,
-): SessionStats[] {
+function computeSessionStats(trends: TrendPlayer[], squad: SquadPlayer[], periodMs: number): SessionStats[] {
   const now = Date.now();
   const fromTime = now - periodMs;
 
   return trends.map((t) => {
     const sp = squad.find((s) => s.playerId === t.playerId);
-    const inWindow = t.dataPoints.filter(
-      (dp) => new Date(dp.capturedAt).getTime() >= fromTime,
-    );
+    const inWindow = t.dataPoints.filter((dp) => new Date(dp.capturedAt).getTime() >= fromTime);
     const first = inWindow[0];
     const last = inWindow[inWindow.length - 1];
     const hasData = inWindow.length >= 1;
@@ -188,11 +206,28 @@ function computeSessionStats(
   });
 }
 
-// ─── Chart helpers ────────────────────────────────────────────────────────────
+function computeRecentActivity(trends: TrendPlayer[]): ActivityEntry[] {
+  const entries: ActivityEntry[] = [];
+  trends.forEach((t, i) => {
+    const pts = t.dataPoints;
+    for (let j = 1; j < pts.length; j++) {
+      const prev = pts[j - 1];
+      const curr = pts[j];
+      entries.push({
+        player: t.name,
+        playerId: t.playerId,
+        timestamp: curr.capturedAt,
+        rpDelta: curr.rankScore - prev.rankScore,
+        killsDelta: Math.max(0, (curr.kills ?? 0) - (prev.kills ?? 0)),
+        playerIndex: i,
+      });
+    }
+  });
+  return entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 8);
+}
 
 function buildTrendChartData(trends: TrendPlayer[]) {
   if (!trends.length) return [];
-
   const allTimes = new Set<string>();
   const byPlayer: Record<string, Record<string, number>> = {};
 
@@ -204,24 +239,177 @@ function buildTrendChartData(trends: TrendPlayer[]) {
     }
   }
 
-  return [...allTimes]
-    .sort()
-    .map((ts) => {
-      const row: Record<string, string | number> = { label: formatTrendLabel(ts) };
-      for (const t of trends) {
-        const val = byPlayer[t.name][ts];
-        if (val !== undefined) row[t.name] = val;
-      }
-      return row;
-    });
+  return [...allTimes].sort().map((ts) => {
+    const d = new Date(ts);
+    const label = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+    const row: Record<string, string | number> = { label };
+    for (const t of trends) {
+      const val = byPlayer[t.name][ts];
+      if (val !== undefined) row[t.name] = val;
+    }
+    return row;
+  });
 }
 
-function formatTrendLabel(iso: string) {
-  const d = new Date(iso);
-  return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function PlayerAvatar({ name, avatar, color, size = 38 }: { name: string; avatar?: string | null; color: string; size?: number }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const initials = name.slice(0, 2).toUpperCase();
+  if (avatar && !imgFailed) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        width={size}
+        height={size}
+        className="rounded-full object-cover shrink-0"
+        style={{ width: size, height: size, boxShadow: `0 0 12px ${color}44` }}
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-full flex items-center justify-center font-bold shrink-0 text-black"
+      style={{ width: size, height: size, background: color, fontSize: size * 0.3, boxShadow: `0 0 14px ${color}55` }}
+    >
+      {initials}
+    </div>
+  );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+function StatCard({
+  icon, label, value, hint, accent = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  hint?: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className={`rounded-xl border p-4 flex flex-col gap-2 relative overflow-hidden transition-all duration-200 hover:border-red-900/60 group ${accent ? "border-red-900/40 bg-gradient-to-br from-red-950/30 to-card" : "border-border bg-card"}`}>
+      {accent && (
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(220,38,38,0.08),transparent_70%)]" />
+      )}
+      <div className="relative flex items-center gap-2 text-red-500/80">
+        {icon}
+        <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">{label}</span>
+      </div>
+      <div className={`relative text-2xl md:text-3xl font-black tracking-tight leading-none ${accent ? "text-white" : "text-foreground"}`}>{value}</div>
+      {hint && <div className="relative text-xs text-muted-foreground font-mono">{hint}</div>}
+    </div>
+  );
+}
+
+function ChartCard({ title, icon, children, className = "" }: { title: string; icon: React.ReactNode; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={`rounded-xl border border-border bg-card p-4 ${className}`}>
+      <div className="flex items-center gap-2 mb-4">
+        <span className="text-red-500">{icon}</span>
+        <h3 className="text-sm font-semibold tracking-wide">{title}</h3>
+      </div>
+      <div className="h-52">
+        <ResponsiveContainer width="100%" height="100%">
+          {children as React.ReactElement}
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function DeltaPill({ value, suffix = "" }: { value: number; suffix?: string }) {
+  if (value === 0) return <span className="text-xs text-muted-foreground font-mono">—</span>;
+  const positive = value > 0;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-mono font-bold ${positive ? "text-emerald-400" : "text-rose-400"}`}>
+      {positive ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+      {positive ? "+" : ""}{fmt(value)}{suffix}
+    </span>
+  );
+}
+
+// ─── Player Card ──────────────────────────────────────────────────────────────
+
+function PlayerCard({
+  player,
+  color,
+  sessionStat,
+  isSession,
+  onNavigate,
+}: {
+  player: SquadPlayer;
+  color: string;
+  sessionStat?: SessionStats;
+  isSession: boolean;
+  onNavigate: (id: number) => void;
+}) {
+  return (
+    <div
+      className="rounded-xl border bg-card flex flex-col overflow-hidden transition-all duration-200 hover:shadow-lg group cursor-pointer"
+      style={{ borderColor: color + "33" }}
+      onClick={() => onNavigate(player.playerId)}
+    >
+      {/* Color accent bar */}
+      <div className="h-0.5 w-full" style={{ background: `linear-gradient(90deg, ${color}, transparent)` }} />
+
+      <div className="p-5 flex flex-col gap-4">
+        {/* Header */}
+        <div className="flex items-start gap-3">
+          <div className="relative">
+            <PlayerAvatar name={player.name} avatar={player.avatar} color={color} size={52} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div
+              className="font-black text-lg leading-tight truncate group-hover:opacity-80 transition-opacity"
+              style={{ color }}
+            >
+              {player.name}
+            </div>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              <RankBadge rankName={player.rankName} size={18} />
+            </div>
+          </div>
+          <ChevronRight size={14} className="text-muted-foreground/50 shrink-0 mt-1 group-hover:text-primary transition-colors" />
+        </div>
+
+        {/* Stats grid */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="flex flex-col gap-0.5">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">RP</div>
+            <div className="text-base font-bold font-mono" style={{ color }}>{fmt(player.rankScore)}</div>
+            {isSession && sessionStat && (
+              <DeltaPill value={sessionStat.rpDelta} />
+            )}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Kills</div>
+            <div className="text-base font-bold font-mono text-rose-400">{fmt(isSession && sessionStat ? undefined : player.kills)}{isSession && sessionStat ? <DeltaPill value={sessionStat.killsDelta} /> : null}</div>
+            {!isSession && <div className="text-[10px] text-muted-foreground font-mono">tracked</div>}
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Dmg</div>
+            <div className="text-base font-bold font-mono text-violet-400">
+              {isSession && sessionStat ? <DeltaPill value={sessionStat.damageDelta} suffix="" /> : fmtK(player.damage)}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer: level + K/D + last seen */}
+        <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs text-muted-foreground font-mono">
+          <span>Lv {player.level ?? "—"}</span>
+          <span>K/D {player.kd != null ? player.kd.toFixed(2) : "—"}</span>
+          {player.capturedAt && (
+            <span>{timeAgo(player.capturedAt)}</span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export function Dashboard() {
   const { data, isLoading } = useGetDashboardSummary();
@@ -246,68 +434,59 @@ export function Dashboard() {
     [isSession, trendPlayers, squad, periodMs],
   );
 
-  const barData = isSession
-    ? sessionStats.map((s) => ({
-        name: s.name,
-        RP: s.rpDelta,
-        Kills: s.killsDelta,
-        Damage: Math.round(s.damageDelta / 1000),
-        KD: 0,
-      }))
-    : squad.map((p) => ({
-        name: p.name,
-        RP: p.rankScore ?? 0,
-        Kills: p.kills ?? 0,
-        Damage: Math.round((p.damage ?? 0) / 1000),
-        KD: p.kd ?? 0,
-      }));
+  const mvp = computeWeeklyMvp(trendPlayers);
 
-  const mvp = computeWeeklyMvp(trendPlayers, PLAYER_COLORS);
-
-  // Session leader: player with highest RP delta in the selected window
   const sessionLeader = isSession
     ? [...sessionStats].sort((a, b) => b.rpDelta - a.rpDelta)[0] ?? null
     : null;
   const sessionLeaderHasData = sessionLeader && sessionLeader.rpDelta !== 0;
 
+  const recentActivity = useMemo(() => computeRecentActivity(trendPlayers), [trendPlayers]);
+
+  const barData = isSession
+    ? sessionStats.map((s) => ({ name: s.name.split(/(?=[A-Z])/)[0], RP: s.rpDelta, Kills: s.killsDelta, Damage: Math.round(s.damageDelta / 1000) }))
+    : squad.map((p) => ({ name: p.name.split(/(?=[A-Z])/)[0], RP: p.rankScore ?? 0, Kills: p.kills ?? 0, Damage: Math.round((p.damage ?? 0) / 1000) }));
+
+  const radarData = squad.map((p, i) => {
+    const normRP = Math.min(100, Math.round(((p.rankScore ?? 0) / 15000) * 100));
+    const normKills = Math.min(100, Math.round(((p.kills ?? 0) / 3000) * 100));
+    const normDmg = Math.min(100, Math.round(((p.damage ?? 0) / 1_500_000) * 100));
+    const normKD = Math.min(100, Math.round(((p.kd ?? 0) / 3) * 100));
+    const normLevel = Math.min(100, Math.round(((p.level ?? 0) / 500) * 100));
+    return { stat: p.name.substring(0, 8), RP: normRP, Kills: normKills, Damage: normDmg, KD: normKD, Level: normLevel };
+  });
+
   async function handleRefresh() {
     setPolling(true);
-    pollStats.mutate(
-      {},
-      {
-        onSuccess: (result) => {
-          const ok = result.results.filter((r) => r.status === "updated").length;
-          const errors = result.results.filter((r) => r.status === "error").length;
-          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetLeaderboardQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetSnapshotsQueryKey() });
-          queryClient.invalidateQueries({ queryKey: getGetTrendsQueryKey() });
-          toast({
-            title: errors > 0 ? "Partial refresh" : "Stats refreshed",
-            description:
-              errors > 0
-                ? `${ok} updated, ${errors} failed`
-                : `${ok} player${ok !== 1 ? "s" : ""} updated`,
-          });
-          setPolling(false);
-        },
-        onError: (err: unknown) => {
-          const msg = err instanceof Error ? err.message : "Unknown error";
-          toast({ title: "Refresh failed", description: msg, variant: "destructive" });
-          setPolling(false);
-        },
+    pollStats.mutate({}, {
+      onSuccess: (result) => {
+        const ok = result.results.filter((r) => r.status === "updated").length;
+        const errors = result.results.filter((r) => r.status === "error").length;
+        queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetLeaderboardQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetSnapshotsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetTrendsQueryKey() });
+        toast({ title: errors > 0 ? "Partial refresh" : "Stats refreshed", description: errors > 0 ? `${ok} updated, ${errors} failed` : `${ok} player${ok !== 1 ? "s" : ""} updated` });
+        setPolling(false);
       },
-    );
+      onError: (err: unknown) => {
+        toast({ title: "Refresh failed", description: err instanceof Error ? err.message : "Unknown error", variant: "destructive" });
+        setPolling(false);
+      },
+    });
   }
+
+  // ── Loading skeleton ──────────────────────────────────────────────────────
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <div className="h-40 rounded-2xl bg-card animate-pulse" />
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="h-28 rounded-2xl bg-card animate-pulse" />
-          ))}
+      <div className="space-y-6 animate-pulse">
+        <div className="h-48 rounded-2xl bg-card border border-border" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-card border border-border" />)}
+        </div>
+        <div className="grid md:grid-cols-3 gap-4">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-44 rounded-xl bg-card border border-border" />)}
         </div>
       </div>
     );
@@ -316,143 +495,110 @@ export function Dashboard() {
   const noPlayers = squad.length === 0;
 
   return (
-    <div className="space-y-8">
-      {/* Hero header — Apex-style gaming banner */}
-      <header className="rounded-2xl border border-red-900/40 relative overflow-hidden min-h-[200px] md:min-h-[220px]">
-        {/* Layer 1: base dark */}
-        <div className="absolute inset-0 bg-[#0a0a0f]" />
+    <div className="space-y-6">
 
-        {/* Layer 2: directional gradients */}
-        <div className="absolute inset-0 bg-gradient-to-r from-red-950/60 via-slate-950/80 to-cyan-950/40" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/50" />
+      {/* ── Hero Banner ────────────────────────────────────────────────────── */}
+      <header className="rounded-2xl border relative overflow-hidden" style={{ borderColor: "rgba(220,38,38,0.25)", minHeight: 210 }}>
+        <div className="absolute inset-0 bg-[#050508]" />
+        <div className="absolute inset-0 bg-gradient-to-r from-red-950/70 via-[#050508]/90 to-[#050508]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_5%_50%,rgba(220,38,38,0.22),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_85%_10%,rgba(220,38,38,0.06),transparent_45%)]" />
 
-        {/* Layer 3: radial glows */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_10%_50%,rgba(239,68,68,0.18),transparent_55%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_90%_20%,rgba(34,211,238,0.12),transparent_50%)]" />
-
-        {/* Layer 4: hexagon grid SVG */}
-        <svg
-          className="absolute inset-0 w-full h-full opacity-[0.06]"
-          xmlns="http://www.w3.org/2000/svg"
-        >
+        {/* Hex grid */}
+        <svg className="absolute inset-0 w-full h-full opacity-[0.05]" xmlns="http://www.w3.org/2000/svg">
           <defs>
-            <pattern id="hex" x="0" y="0" width="56" height="48" patternUnits="userSpaceOnUse">
-              <polygon
-                points="28,2 52,14 52,38 28,50 4,38 4,14"
-                fill="none"
-                stroke="#ef4444"
-                strokeWidth="1"
-              />
+            <pattern id="hexg" x="0" y="0" width="56" height="48" patternUnits="userSpaceOnUse">
+              <polygon points="28,2 52,14 52,38 28,50 4,38 4,14" fill="none" stroke="#dc2626" strokeWidth="1" />
             </pattern>
           </defs>
-          <rect width="100%" height="100%" fill="url(#hex)" />
+          <rect width="100%" height="100%" fill="url(#hexg)" />
         </svg>
 
-        {/* Layer 5: diagonal slash accent */}
-        <div
-          className="absolute top-0 right-0 h-full w-1/2 opacity-10"
-          style={{
-            background:
-              "linear-gradient(105deg, transparent 40%, rgba(239,68,68,0.6) 40.5%, rgba(239,68,68,0.3) 41%, transparent 41.5%)",
-          }}
-        />
-        <div
-          className="absolute top-0 right-0 h-full w-1/2 opacity-8"
-          style={{
-            background:
-              "linear-gradient(105deg, transparent 50%, rgba(34,211,238,0.4) 50.5%, rgba(34,211,238,0.15) 51%, transparent 51.5%)",
-          }}
-        />
+        {/* Diagonal slash accents */}
+        <div className="absolute top-0 right-0 h-full w-2/3 opacity-[0.07]" style={{ background: "linear-gradient(108deg, transparent 38%, rgba(220,38,38,0.8) 38.4%, rgba(220,38,38,0.3) 39%, transparent 39.5%)" }} />
+        <div className="absolute top-0 right-0 h-full w-2/3 opacity-[0.04]" style={{ background: "linear-gradient(108deg, transparent 46%, rgba(255,255,255,0.5) 46.4%, transparent 47%)" }} />
 
-        {/* Layer 6: scan-line texture */}
-        <div
-          className="absolute inset-0 opacity-[0.03]"
-          style={{
-            backgroundImage:
-              "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.8) 2px, rgba(255,255,255,0.8) 3px)",
-          }}
-        />
+        {/* HUD corners */}
+        <div className="absolute top-3 left-3 w-5 h-5 border-t-2 border-l-2 border-red-600/70 rounded-tl-sm" />
+        <div className="absolute top-3 right-3 w-5 h-5 border-t-2 border-r-2 border-red-900/50 rounded-tr-sm" />
+        <div className="absolute bottom-3 left-3 w-5 h-5 border-b-2 border-l-2 border-red-900/50 rounded-bl-sm" />
+        <div className="absolute bottom-3 right-3 w-5 h-5 border-b-2 border-r-2 border-red-900/50 rounded-br-sm" />
 
-        {/* HUD corner brackets */}
-        <div className="absolute top-3 left-3 w-6 h-6 border-t-2 border-l-2 border-red-500/60 rounded-tl" />
-        <div className="absolute top-3 right-3 w-6 h-6 border-t-2 border-r-2 border-red-500/60 rounded-tr" />
-        <div className="absolute bottom-3 left-3 w-6 h-6 border-b-2 border-l-2 border-cyan-500/40 rounded-bl" />
-        <div className="absolute bottom-3 right-3 w-6 h-6 border-b-2 border-r-2 border-cyan-500/40 rounded-br" />
-
-        {/* Large faint Apex A watermark */}
-        <svg
-          className="absolute -right-8 -top-8 opacity-[0.04] select-none pointer-events-none"
-          width="340"
-          height="340"
-          viewBox="0 0 40 40"
-          fill="none"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path d="M20 2L37 11.5V28.5L20 38L3 28.5V11.5L20 2Z" fill="#ef4444" />
+        {/* Watermark A */}
+        <svg className="absolute -right-6 -top-6 opacity-[0.035] select-none pointer-events-none" width="320" height="320" viewBox="0 0 40 40" fill="none">
+          <path d="M20 2L37 11.5V28.5L20 38L3 28.5V11.5L20 2Z" fill="#dc2626" />
           <line x1="13" y1="29" x2="20" y2="11" stroke="white" strokeWidth="2.8" strokeLinecap="round" />
           <line x1="27" y1="29" x2="20" y2="11" stroke="white" strokeWidth="2.8" strokeLinecap="round" />
           <line x1="15" y1="22" x2="25" y2="22" stroke="white" strokeWidth="2.5" strokeLinecap="round" />
         </svg>
 
         {/* Content */}
-        <div className="relative z-10 p-6 md:p-8">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-1 h-4 bg-red-500 rounded-full" />
-            <span className="text-xs font-mono uppercase tracking-[0.35em] text-red-400/90">
-              5SK · Apex Legends
-            </span>
-          </div>
+        <div className="relative z-10 p-6 md:p-8 flex flex-col md:flex-row md:items-end gap-6">
+          <div className="flex-1">
+            <div className="flex items-center gap-2.5 mb-3">
+              <div className="w-1 h-4 rounded-full bg-red-500" />
+              <span className="text-[10px] font-mono uppercase tracking-[0.4em] text-red-400/80">5SK · Apex Legends</span>
+              <div className="flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-wider">Live</span>
+              </div>
+            </div>
 
-          <h1 className="text-3xl md:text-5xl font-black tracking-tight leading-none">
-            <span className="text-white drop-shadow-[0_0_20px_rgba(239,68,68,0.4)]">
-              SQUAD{" "}
-            </span>
-            <span
-              className="bg-gradient-to-r from-red-400 via-orange-300 to-red-500 bg-clip-text text-transparent drop-shadow-[0_0_30px_rgba(239,68,68,0.6)]"
-            >
-              COMMAND
-            </span>
-            <span className="text-white drop-shadow-[0_0_20px_rgba(239,68,68,0.4)]">
-              {" "}CENTER
-            </span>
-          </h1>
+            <h1 className="text-4xl md:text-5xl font-black tracking-tighter leading-none">
+              <span className="text-white">SQUAD </span>
+              <span style={{ background: "linear-gradient(135deg, #ef4444 0%, #f97316 50%, #dc2626 100%)", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>
+                COMMAND
+              </span>
+              <span className="text-white"> CENTER</span>
+            </h1>
 
-          <div className="mt-2 flex items-center gap-3">
-            <div className="h-px w-8 bg-red-500/60" />
-            <p className="text-sm text-slate-400 max-w-xl">
+            <p className="mt-2 text-sm text-slate-500 max-w-lg">
               Track ranked progression, compare teammates, and review session performance from live Apex Legends API snapshots.
             </p>
+
+            <button
+              data-testid="button-refresh-stats"
+              onClick={handleRefresh}
+              disabled={polling || noPlayers}
+              className="mt-5 flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm tracking-wide transition-all disabled:opacity-40 hover:scale-[1.02] active:scale-[0.97]"
+              style={{ background: "linear-gradient(135deg, #ef4444, #b91c1c)", boxShadow: "0 0 20px rgba(220,38,38,0.3), inset 0 1px 0 rgba(255,255,255,0.1)", color: "white" }}
+            >
+              <RefreshCw size={15} className={polling ? "animate-spin" : ""} />
+              {polling ? "Refreshing..." : "Refresh Stats Now"}
+            </button>
           </div>
 
-          <button
-            data-testid="button-refresh-stats"
-            onClick={handleRefresh}
-            disabled={polling || noPlayers}
-            className="mt-6 flex items-center gap-2 px-5 py-2.5 rounded-lg font-bold text-sm tracking-wide transition-all disabled:opacity-40 hover:scale-[1.02] active:scale-[0.98]"
-            style={{
-              background: "linear-gradient(135deg, #ef4444, #dc2626)",
-              boxShadow: "0 0 20px rgba(239,68,68,0.35), inset 0 1px 0 rgba(255,255,255,0.1)",
-              color: "white",
-            }}
-          >
-            <RefreshCw size={16} className={polling ? "animate-spin" : ""} />
-            {polling ? "Refreshing..." : "Refresh Stats Now"}
-          </button>
+          {/* Quick squad stats inline */}
+          {!noPlayers && (
+            <div className="flex gap-4 md:gap-6 shrink-0">
+              {[
+                { label: "Squad", value: fmt(data?.playerCount), sub: "players" },
+                { label: "Top Rank", value: data?.topRankedPlayer ?? "—", sub: data?.topRankedRank ?? "" },
+                { label: "Total Kills", value: fmt(data?.totalKills), sub: "tracked" },
+              ].map((s) => (
+                <div key={s.label} className="flex flex-col items-center md:items-end gap-0.5">
+                  <div className="text-[9px] font-mono uppercase tracking-[0.25em] text-red-400/70">{s.label}</div>
+                  <div className="text-xl font-black text-white leading-none">{s.value}</div>
+                  <div className="text-[9px] font-mono text-muted-foreground">{s.sub}</div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </header>
 
-      {/* Period toggle */}
+      {/* ── Period toggle ───────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap">
-        <span className="text-xs text-muted-foreground font-mono uppercase tracking-wide shrink-0">View</span>
+        <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-[0.2em] shrink-0">View</span>
         <div className="flex flex-wrap gap-1">
           {QUICK_PERIODS.map((p) => (
             <button
               key={p.key}
               onClick={() => setPeriodKey(p.key)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              className={`px-3 py-1.5 rounded-md text-xs font-mono font-medium tracking-wide transition-all duration-150 ${
                 periodKey === p.key
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-card border border-border text-muted-foreground hover:text-foreground"
+                  ? "bg-primary text-white shadow-[0_0_12px_rgba(220,38,38,0.3)]"
+                  : "bg-card border border-border text-muted-foreground hover:text-foreground hover:border-red-900/40"
               }`}
             >
               {p.label}
@@ -460,285 +606,327 @@ export function Dashboard() {
           ))}
         </div>
         {isSession && (
-          <span className="text-xs text-muted-foreground italic">showing session deltas</span>
+          <span className="text-[10px] text-muted-foreground font-mono italic">· showing deltas</span>
         )}
       </div>
 
-      {/* Stat cards */}
-      <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard icon={<Users size={18} />} label="Players Tracked" value={fmt(data?.playerCount)} />
-        <StatCard icon={<Trophy size={18} />} label="Top Ranked" value={data?.topRankedPlayer ?? "—"} hint={data?.topRankedRank ?? undefined} />
+      {/* ── 4 Stat Cards ───────────────────────────────────────────────────── */}
+      <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatCard icon={<Users size={16} />} label="Players Tracked" value={fmt(data?.playerCount)} />
+        <StatCard icon={<Trophy size={16} />} label="Top Ranked" value={data?.topRankedPlayer ?? "—"} hint={data?.topRankedRank ?? undefined} accent />
         {isSession ? (
           <>
-            <StatCard
-              icon={<Crosshair size={18} />}
-              label="Session Kills"
-              value={fmt(sessionStats.reduce((s, p) => s + p.killsDelta, 0))}
-              hint="delta in window"
-            />
-            <StatCard
-              icon={<Zap size={18} />}
-              label="Session Damage"
-              value={fmt(sessionStats.reduce((s, p) => s + p.damageDelta, 0))}
-              hint="delta in window"
-            />
+            <StatCard icon={<Crosshair size={16} />} label="Session Kills" value={fmt(sessionStats.reduce((s, p) => s + p.killsDelta, 0))} hint="delta in window" />
+            <StatCard icon={<Zap size={16} />} label="Session Damage" value={fmtK(sessionStats.reduce((s, p) => s + p.damageDelta, 0))} hint="delta in window" />
           </>
         ) : (
           <>
-            <StatCard icon={<Crosshair size={18} />} label="Squad Kills" value={fmt(data?.totalKills)} />
-            <StatCard icon={<Zap size={18} />} label="Squad Damage" value={fmt(data?.totalDamage)} />
+            <StatCard icon={<Crosshair size={16} />} label="Squad Kills" value={fmt(data?.totalKills)} />
+            <StatCard icon={<Zap size={16} />} label="Squad Damage" value={fmtK(data?.totalDamage)} />
           </>
         )}
       </section>
 
+      {/* ── Empty state ─────────────────────────────────────────────────────── */}
       {noPlayers ? (
-        <div className="rounded-2xl border border-dashed border-border bg-card/50 p-12 text-center">
-          <Users size={40} className="mx-auto text-muted-foreground mb-4" />
-          <h2 className="text-xl font-semibold mb-2">No players yet</h2>
-          <p className="text-muted-foreground text-sm max-w-sm mx-auto">
-            Go to the Players page, add your squad members by Apex username, then come back and click Refresh Stats Now.
+        <div className="rounded-2xl border border-dashed border-border bg-card/30 p-16 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-red-950/40 border border-red-900/30 flex items-center justify-center mx-auto mb-4">
+            <Users size={24} className="text-red-500" />
+          </div>
+          <h2 className="text-xl font-bold mb-2">No players tracked yet</h2>
+          <p className="text-muted-foreground text-sm max-w-sm mx-auto mb-5">
+            Go to the Players page, add your squad members by Apex username, then hit Refresh Stats Now.
           </p>
+          <button
+            onClick={() => navigate("/players")}
+            className="px-4 py-2 rounded-lg text-sm font-bold text-white"
+            style={{ background: "linear-gradient(135deg, #ef4444, #b91c1c)" }}
+          >
+            Add Players
+          </button>
         </div>
       ) : (
         <>
-          {/* Session leader / Weekly MVP */}
+
+          {/* ── Squad Roster Cards ─────────────────────────────────────────── */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Shield size={13} className="text-red-500" />
+              <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground">Squad Roster</h2>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {squad.map((p, i) => (
+                <PlayerCard
+                  key={p.playerId}
+                  player={p}
+                  color={PLAYER_COLORS[i % PLAYER_COLORS.length]}
+                  sessionStat={isSession ? sessionStats.find((s) => s.playerId === p.playerId) : undefined}
+                  isSession={isSession}
+                  onNavigate={(id) => navigate(`/players/${id}`)}
+                />
+              ))}
+            </div>
+          </section>
+
+          {/* ── MVP / Session Leader ───────────────────────────────────────── */}
           {isSession ? (
             sessionLeaderHasData ? (() => {
               const sl = sessionLeader!;
               const idx = trendPlayers.findIndex((t) => t.playerId === sl.playerId);
               const color = PLAYER_COLORS[idx >= 0 ? idx % PLAYER_COLORS.length : 0];
               return (
-                <section
-                  className="rounded-2xl border border-border bg-gradient-to-br from-slate-900 to-slate-800 p-6 relative overflow-hidden"
-                  style={{ borderColor: color + "44" }}
-                >
-                  <div className="absolute inset-0 opacity-5" style={{ background: `radial-gradient(ellipse at top left, ${color}, transparent 70%)` }} />
-                  <div className="relative flex flex-col sm:flex-row sm:items-center gap-6">
+                <section className="rounded-xl border bg-card p-5 relative overflow-hidden" style={{ borderColor: color + "44" }}>
+                  <div className="absolute inset-0 opacity-[0.04]" style={{ background: `radial-gradient(ellipse at top left, ${color}, transparent 60%)` }} />
+                  <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
                     <div className="flex items-center gap-4">
-                      <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: color + "22", border: `1.5px solid ${color}44` }}>
-                        <Star size={24} style={{ color }} />
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: color + "18", border: `1px solid ${color}40` }}>
+                        <Star size={20} style={{ color }} />
                       </div>
                       <div>
-                        <div className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground mb-0.5">Session Leader</div>
-                        <div className="text-3xl font-bold" style={{ color }}>{sl.name}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {QUICK_PERIODS.find((p) => p.key === periodKey)?.label} window · {sl.snapshotCount} snapshot{sl.snapshotCount !== 1 ? "s" : ""}
-                        </div>
+                        <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-muted-foreground mb-0.5">Session Leader</div>
+                        <div className="text-2xl font-black" style={{ color }}>{sl.name}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">{QUICK_PERIODS.find((p) => p.key === periodKey)?.label} · {sl.snapshotCount} snapshot{sl.snapshotCount !== 1 ? "s" : ""}</div>
                       </div>
                     </div>
-                    <div className="sm:ml-auto flex gap-6 flex-wrap">
-                      <MvpStat icon={<TrendingUp size={14} />} label="RP Gained" value={sl.rpDelta >= 0 ? `+${fmt(sl.rpDelta)}` : fmt(sl.rpDelta)} color="text-cyan-400" />
-                      <MvpStat icon={<Swords size={14} />} label="Kills Gained" value={sl.killsDelta > 0 ? `+${fmt(sl.killsDelta)}` : "—"} color="text-rose-400" />
-                      <MvpStat icon={<Flame size={14} />} label="Dmg Gained" value={sl.damageDelta > 0 ? `+${fmt(sl.damageDelta)}` : "—"} color="text-violet-400" />
+                    <div className="sm:ml-auto grid grid-cols-3 gap-4">
+                      {[
+                        { label: "RP Gained", value: sl.rpDelta >= 0 ? `+${fmt(sl.rpDelta)}` : fmt(sl.rpDelta), color: "text-emerald-400" },
+                        { label: "Kills", value: sl.killsDelta > 0 ? `+${fmt(sl.killsDelta)}` : "—", color: "text-rose-400" },
+                        { label: "Damage", value: sl.damageDelta > 0 ? `+${fmtK(sl.damageDelta)}` : "—", color: "text-violet-400" },
+                      ].map((s) => (
+                        <div key={s.label} className="text-center">
+                          <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{s.label}</div>
+                          <div className={`text-lg font-black font-mono ${s.color}`}>{s.value}</div>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 </section>
               );
             })() : (
-              <div className="rounded-2xl border border-dashed border-border/60 bg-card/30 px-5 py-4 flex items-center gap-3 text-sm text-muted-foreground">
-                <Star size={15} className="text-primary shrink-0" />
-                No RP changes found in this window. Try a wider period or refresh stats.
+              <div className="rounded-xl border border-dashed border-border/50 bg-card/20 px-5 py-4 flex items-center gap-3 text-sm text-muted-foreground">
+                <Clock size={14} className="text-muted-foreground shrink-0" />
+                No RP changes detected in this window. Try a wider period or refresh stats.
               </div>
             )
           ) : mvp ? (
-            <section
-              className="rounded-2xl border border-border bg-gradient-to-br from-slate-900 to-slate-800 p-6 relative overflow-hidden"
-              style={{ borderColor: mvp.color + "44" }}
-            >
-              <div className="absolute inset-0 opacity-5" style={{ background: `radial-gradient(ellipse at top left, ${mvp.color}, transparent 70%)` }} />
-              <div className="relative flex flex-col sm:flex-row sm:items-center gap-6">
+            <section className="rounded-xl border bg-card p-5 relative overflow-hidden" style={{ borderColor: mvp.color + "44" }}>
+              <div className="absolute inset-0 opacity-[0.04]" style={{ background: `radial-gradient(ellipse at top left, ${mvp.color}, transparent 60%)` }} />
+              <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
                 <div className="flex items-center gap-4">
-                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: mvp.color + "22", border: `1.5px solid ${mvp.color}44` }}>
-                    <Star size={24} style={{ color: mvp.color }} />
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: mvp.color + "18", border: `1px solid ${mvp.color}40` }}>
+                    <Star size={20} style={{ color: mvp.color }} />
                   </div>
                   <div>
-                    <div className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground mb-0.5">Weekly MVP</div>
-                    <div className="text-3xl font-bold" style={{ color: mvp.color }}>{mvp.name}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">Based on {mvp.snapshots} snapshots in the last 7 days</div>
+                    <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-muted-foreground mb-0.5">Weekly MVP</div>
+                    <div className="text-2xl font-black" style={{ color: mvp.color }}>{mvp.name}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{mvp.snapshots} snapshots · last 7 days</div>
                   </div>
                 </div>
-                <div className="sm:ml-auto flex gap-6 flex-wrap">
-                  <MvpStat icon={<TrendingUp size={14} />} label="RP Gained" value={`+${fmt(mvp.rpGained)}`} color="text-cyan-400" />
-                  <MvpStat icon={<Swords size={14} />} label="New Kills" value={mvp.killsGained > 0 ? `+${fmt(mvp.killsGained)}` : "—"} color="text-rose-400" />
-                  <MvpStat icon={<Flame size={14} />} label="New Damage" value={mvp.damageGained > 0 ? `+${fmt(mvp.damageGained)}` : "—"} color="text-violet-400" />
+                <div className="sm:ml-auto grid grid-cols-3 gap-4">
+                  {[
+                    { label: "RP Gained", value: `+${fmt(mvp.rpGained)}`, color: "text-emerald-400" },
+                    { label: "New Kills", value: mvp.killsGained > 0 ? `+${fmt(mvp.killsGained)}` : "—", color: "text-rose-400" },
+                    { label: "New Damage", value: mvp.damageGained > 0 ? `+${fmtK(mvp.damageGained)}` : "—", color: "text-violet-400" },
+                  ].map((s) => (
+                    <div key={s.label} className="text-center">
+                      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{s.label}</div>
+                      <div className={`text-lg font-black font-mono ${s.color}`}>{s.value}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
             </section>
-          ) : hasTrends ? null : (
-            <div className="rounded-2xl border border-dashed border-border/60 bg-card/30 px-5 py-4 flex items-center gap-3 text-sm text-muted-foreground">
-              <Star size={15} className="text-primary shrink-0" />
-              Weekly MVP will appear once you have snapshots across at least 2 days this week.
-            </div>
-          )}
+          ) : null}
 
-          {/* RP Trend */}
-          {hasTrends && (
-            <section className="rounded-2xl border border-border bg-card p-5">
-              <div className="flex items-center gap-2 mb-4">
-                <TrendingUp size={16} className="text-primary" />
-                <h2 className="text-base font-semibold">RP Progression Over Time</h2>
-              </div>
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={trendChartData} margin={{ top: 4, right: 16, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                    <XAxis dataKey="label" stroke="#64748b" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
-                    <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
-                    <Tooltip {...TOOLTIP_STYLE} />
-                    <Legend />
+          {/* ── RP Trend + Recent Activity ─────────────────────────────────── */}
+          <section className="grid gap-4 xl:grid-cols-3">
+            {/* RP Trend Chart */}
+            {hasTrends && (
+              <div className="xl:col-span-2 rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <TrendingUp size={14} className="text-red-500" />
+                  <h3 className="text-sm font-semibold tracking-wide">RP Progression</h3>
+                  <div className="ml-auto flex gap-3">
                     {trendPlayers.map((t, i) => (
-                      <Line
-                        key={t.name}
-                        type="monotone"
-                        dataKey={t.name}
-                        stroke={PLAYER_COLORS[i % PLAYER_COLORS.length]}
-                        strokeWidth={2.5}
-                        dot={{ r: 3, fill: PLAYER_COLORS[i % PLAYER_COLORS.length] }}
-                        activeDot={{ r: 5 }}
-                        connectNulls
-                      />
+                      <div key={t.name} className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <div className="w-2 h-2 rounded-full" style={{ background: PLAYER_COLORS[i % PLAYER_COLORS.length] }} />
+                        {t.name}
+                      </div>
                     ))}
-                  </LineChart>
-                </ResponsiveContainer>
+                  </div>
+                </div>
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={trendChartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                      <XAxis dataKey="label" stroke="#374151" tick={{ fontSize: 10, fill: "#6b7280" }} interval="preserveStartEnd" />
+                      <YAxis stroke="#374151" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                      <Tooltip {...TOOLTIP_STYLE} />
+                      {trendPlayers.map((t, i) => (
+                        <Line key={t.name} type="monotone" dataKey={t.name} stroke={PLAYER_COLORS[i % PLAYER_COLORS.length]} strokeWidth={2} dot={{ r: 2.5, fill: PLAYER_COLORS[i % PLAYER_COLORS.length] }} activeDot={{ r: 4 }} connectNulls />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </section>
-          )}
+            )}
 
-          {/* Comparison bar charts */}
-          <section className="grid gap-6 xl:grid-cols-3">
-            <ChartCard title={isSession ? "RP Gained" : "Rank Points"} icon={<Trophy size={14} className="text-primary" />}>
-              <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
-                <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
-                <Tooltip {...TOOLTIP_STYLE} />
-                <Bar dataKey="RP" radius={[6, 6, 0, 0]}>
-                  {barData.map((_, i) => (
-                    <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ChartCard>
-
-            <ChartCard title={isSession ? "Kills Gained" : "Total Kills"} icon={<Crosshair size={14} className="text-primary" />}>
-              <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
-                <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
-                <Tooltip {...TOOLTIP_STYLE} />
-                <Bar dataKey="Kills" fill="#f43f5e" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ChartCard>
-
-            <ChartCard title={isSession ? "Damage Gained (k)" : "Damage (thousands)"} icon={<Zap size={14} className="text-primary" />}>
-              <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
-                <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
-                <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
-                <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${v}k`, "Damage"]} />
-                <Bar dataKey="Damage" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
-              </BarChart>
-            </ChartCard>
-          </section>
-
-          {/* K/D + player breakdown */}
-          <section className="grid gap-6 xl:grid-cols-2">
-            <ChartCard title="K/D Ratio (lifetime)" icon={<Target size={14} className="text-primary" />}>
-              <BarChart
-                data={squad.map((p) => ({ name: p.name, KD: p.kd ?? 0 }))}
-                layout="vertical"
-                margin={{ top: 4, right: 16, left: 40, bottom: 0 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" horizontal={false} />
-                <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} width={70} />
-                <Tooltip {...TOOLTIP_STYLE} />
-                <ReferenceLine x={1} stroke="#64748b" strokeDasharray="4 4" label={{ value: "1.0", fill: "#64748b", fontSize: 10 }} />
-                <Bar dataKey="KD" fill="#10b981" radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ChartCard>
-
-            <div className={isSession ? "xl:col-span-2" : ""}>
-              <div className="flex items-center gap-2 mb-3">
-                <Shield size={14} className="text-primary" />
-                <h2 className="text-base font-semibold">Player Breakdown</h2>
+            {/* Recent Activity Feed */}
+            <div className="rounded-xl border border-border bg-card p-4 flex flex-col">
+              <div className="flex items-center gap-2 mb-4">
+                <Activity size={14} className="text-red-500" />
+                <h3 className="text-sm font-semibold tracking-wide">Recent Activity</h3>
               </div>
-              <div className="space-y-3">
-                {squad.map((p, i) => {
-                  const ss = isSession ? sessionStats.find((s) => s.playerId === p.playerId) : null;
-                  return (
-                  <div
-                    key={p.playerId}
-                    className="rounded-xl border border-border bg-card p-4 flex items-center gap-4"
-                  >
-                    <div
-                      className="w-1 self-stretch rounded-full shrink-0"
-                      style={{ background: PLAYER_COLORS[i % PLAYER_COLORS.length] }}
-                    />
-                    <button
-                      onClick={() => navigate(`/players/${p.playerId}`)}
-                      className="flex items-center gap-3 group"
-                    >
-                      <PlayerAvatar
-                        name={p.name}
-                        avatar={p.avatar}
-                        color={PLAYER_COLORS[i % PLAYER_COLORS.length]}
-                        size={38}
-                      />
-                      <div className="text-left">
-                        <div className="font-bold group-hover:text-primary group-hover:underline underline-offset-2 transition-colors">{p.name}</div>
-                        <div className="text-xs text-muted-foreground">
-                          <RankBadge rankName={p.rankName} size={16} /> · Level {p.level ?? "—"}
+              {recentActivity.length === 0 ? (
+                <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground font-mono">
+                  No activity yet
+                </div>
+              ) : (
+                <div className="space-y-2 flex-1 overflow-y-auto">
+                  {recentActivity.map((entry, i) => {
+                    const color = PLAYER_COLORS[entry.playerIndex % PLAYER_COLORS.length];
+                    return (
+                      <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.02] border border-border/50">
+                        <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: color }} />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-bold truncate" style={{ color }}>{entry.player}</div>
+                          <div className="text-[10px] text-muted-foreground font-mono">{timeAgo(entry.timestamp)}</div>
+                        </div>
+                        <div className="flex flex-col items-end gap-0.5">
+                          <span className={`text-xs font-mono font-bold ${entry.rpDelta > 0 ? "text-emerald-400" : entry.rpDelta < 0 ? "text-rose-400" : "text-muted-foreground"}`}>
+                            {entry.rpDelta > 0 ? "+" : ""}{fmt(entry.rpDelta)} RP
+                          </span>
+                          {entry.killsDelta > 0 && (
+                            <span className="text-[10px] font-mono text-rose-400">+{entry.killsDelta} kills</span>
+                          )}
                         </div>
                       </div>
-                    </button>
-                    <div className="flex gap-4 text-right ml-auto">
-                      {ss ? (
-                        <>
-                          <Pill
-                            label="RP Δ"
-                            value={ss.rpDelta >= 0 ? `+${fmt(ss.rpDelta)}` : fmt(ss.rpDelta)}
-                            color={ss.rpDelta >= 0 ? "text-cyan-400" : "text-red-400"}
-                          />
-                          <Pill
-                            label="Kill Δ"
-                            value={ss.hasData ? (ss.killsDelta > 0 ? `+${fmt(ss.killsDelta)}` : "0") : "—"}
-                            color={ss.killsDelta > 0 ? "text-rose-400" : "text-muted-foreground"}
-                          />
-                          <Pill
-                            label="Dmg Δ"
-                            value={ss.hasData ? (ss.damageDelta > 0 ? `+${(ss.damageDelta / 1000).toFixed(0)}k` : "0") : "—"}
-                            color={ss.damageDelta > 0 ? "text-violet-400" : "text-muted-foreground"}
-                          />
-                          <Pill label="K/D" value={p.kd != null ? p.kd.toFixed(2) : "—"} color="text-emerald-400" />
-                        </>
-                      ) : (
-                        <>
-                          <Pill label="RP" value={fmt(p.rankScore)} color="text-cyan-400" />
-                          <Pill label="Kills" value={fmt(p.kills)} color="text-rose-400" />
-                          <Pill label="K/D" value={p.kd != null ? p.kd.toFixed(2) : "—"} color="text-emerald-400" />
-                          <Pill label="Dmg" value={p.damage ? `${(p.damage / 1000).toFixed(0)}k` : "—"} color="text-violet-400" />
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </section>
 
-          {/* Full squad table */}
-          <section className="rounded-2xl border border-border bg-card overflow-hidden">
-            <div className="p-5 border-b border-border">
-              <h2 className="text-base font-semibold">
-                {isSession ? `Session Snapshot · ${QUICK_PERIODS.find((p) => p.key === periodKey)?.label}` : "Full Squad Snapshot"}
-              </h2>
+          {/* ── Comparison Charts ──────────────────────────────────────────── */}
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Swords size={13} className="text-red-500" />
+              <h2 className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground">Player Comparison</h2>
+            </div>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <ChartCard title={isSession ? "RP Gained" : "Rank Points"} icon={<Trophy size={13} />}>
+                <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                  <XAxis dataKey="name" stroke="#374151" tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <YAxis stroke="#374151" tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <Tooltip {...TOOLTIP_STYLE} />
+                  <Bar dataKey="RP" radius={[4, 4, 0, 0]} maxBarSize={52}>
+                    {barData.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ChartCard>
+
+              <ChartCard title={isSession ? "Kills Gained" : "Total Kills"} icon={<Crosshair size={13} />}>
+                <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                  <XAxis dataKey="name" stroke="#374151" tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <YAxis stroke="#374151" tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <Tooltip {...TOOLTIP_STYLE} />
+                  <Bar dataKey="Kills" radius={[4, 4, 0, 0]} maxBarSize={52}>
+                    {barData.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ChartCard>
+
+              <ChartCard title={isSession ? "Damage Gained (k)" : "Damage (k)"} icon={<Zap size={13} />}>
+                <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+                  <XAxis dataKey="name" stroke="#374151" tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <YAxis stroke="#374151" tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <Tooltip {...TOOLTIP_STYLE} formatter={(v) => [`${v}k`, "Damage"]} />
+                  <Bar dataKey="Damage" radius={[4, 4, 0, 0]} maxBarSize={52}>
+                    {barData.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ChartCard>
+            </div>
+          </section>
+
+          {/* ── Radar + K/D ───────────────────────────────────────────────── */}
+          {squad.length >= 2 && (
+            <section className="grid gap-4 lg:grid-cols-2">
+              {/* Radar comparison */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <Target size={13} className="text-red-500" />
+                  <h3 className="text-sm font-semibold tracking-wide">Player Performance Radar</h3>
+                  <span className="text-[10px] text-muted-foreground font-mono ml-auto">normalized</span>
+                </div>
+                <div className="h-52">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart data={[
+                      { stat: "RP", ...Object.fromEntries(squad.map((p, i) => [p.name, Math.min(100, Math.round(((p.rankScore ?? 0) / 15000) * 100))])) },
+                      { stat: "Kills", ...Object.fromEntries(squad.map((p) => [p.name, Math.min(100, Math.round(((p.kills ?? 0) / 3000) * 100))])) },
+                      { stat: "Damage", ...Object.fromEntries(squad.map((p) => [p.name, Math.min(100, Math.round(((p.damage ?? 0) / 1_500_000) * 100))])) },
+                      { stat: "K/D", ...Object.fromEntries(squad.map((p) => [p.name, Math.min(100, Math.round(((p.kd ?? 0) / 3) * 100))])) },
+                      { stat: "Level", ...Object.fromEntries(squad.map((p) => [p.name, Math.min(100, Math.round(((p.level ?? 0) / 500) * 100))])) },
+                    ]}>
+                      <PolarGrid stroke="rgba(255,255,255,0.06)" />
+                      <PolarAngleAxis dataKey="stat" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                      {squad.map((p, i) => (
+                        <Radar key={p.name} name={p.name} dataKey={p.name} stroke={PLAYER_COLORS[i % PLAYER_COLORS.length]} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} fillOpacity={0.08} strokeWidth={1.5} />
+                      ))}
+                      <Tooltip {...TOOLTIP_STYLE} />
+                      <Legend iconType="circle" iconSize={8} formatter={(value) => <span style={{ fontSize: 10, color: "#9ca3af" }}>{value}</span>} />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* K/D horizontal bars */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <Crosshair size={13} className="text-red-500" />
+                  <h3 className="text-sm font-semibold tracking-wide">K/D Ratio</h3>
+                  <span className="text-[10px] text-muted-foreground font-mono ml-auto">lifetime</span>
+                </div>
+                <div className="h-52">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={squad.map((p, i) => ({ name: p.name, KD: p.kd ?? 0, color: PLAYER_COLORS[i % PLAYER_COLORS.length] }))} layout="vertical" margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+                      <XAxis type="number" stroke="#374151" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                      <YAxis type="category" dataKey="name" stroke="#374151" tick={{ fontSize: 11, fill: "#9ca3af" }} width={80} />
+                      <Tooltip {...TOOLTIP_STYLE} formatter={(v: unknown) => [(v as number).toFixed(2), "K/D"]} />
+                      <ReferenceLine x={1} stroke="rgba(220,38,38,0.4)" strokeDasharray="4 4" label={{ value: "1.0", fill: "#6b7280", fontSize: 9 }} />
+                      <Bar dataKey="KD" radius={[0, 4, 4, 0]} maxBarSize={28}>
+                        {squad.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* ── Squad Stats Table ──────────────────────────────────────────── */}
+          <section className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="flex items-center gap-3 p-4 border-b border-border">
+              <Shield size={13} className="text-red-500" />
+              <h3 className="text-sm font-semibold tracking-wide">
+                {isSession ? "Session Breakdown" : "Squad Stats"}
+              </h3>
+              {isSession && (
+                <span className="ml-auto text-[10px] font-mono text-muted-foreground italic">
+                  {QUICK_PERIODS.find((p) => p.key === periodKey)?.label} window
+                </span>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
+                  <tr className="text-muted-foreground text-[10px] font-mono uppercase tracking-wider border-b border-border">
                     <th className="text-left p-4">Player</th>
                     <th className="text-left p-4">Rank</th>
                     <th className="text-left p-4">{isSession ? "RP Δ" : "RP"}</th>
@@ -746,41 +934,51 @@ export function Dashboard() {
                     <th className="text-left p-4">{isSession ? "Kills Δ" : "Kills"}</th>
                     <th className="text-left p-4">{isSession ? "Damage Δ" : "Damage"}</th>
                     <th className="text-left p-4">K/D</th>
-                    {!isSession && <th className="text-left p-4">Last Update</th>}
+                    {!isSession && <th className="text-left p-4">Last Seen</th>}
                     {isSession && <th className="text-left p-4">Snapshots</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {isSession
-                    ? sessionStats.map((s) => (
-                        <tr key={s.playerId} className="border-b border-border/50 hover:bg-white/[0.02] transition-colors">
-                          <td className="p-4 font-semibold text-foreground">{s.name}</td>
+                    ? sessionStats.map((s, i) => (
+                        <tr key={s.playerId} className="border-b border-border/40 hover:bg-white/[0.015] transition-colors">
+                          <td className="p-4">
+                            <button onClick={() => navigate(`/players/${s.playerId}`)} className="flex items-center gap-3 group">
+                              <PlayerAvatar name={s.name} avatar={s.avatar} color={PLAYER_COLORS[i % PLAYER_COLORS.length]} size={32} />
+                              <span className="font-bold group-hover:text-primary transition-colors">{s.name}</span>
+                            </button>
+                          </td>
                           <td className="p-4"><RankBadge rankName={s.rankName} size={20} /></td>
-                          <td className={`p-4 font-mono font-bold ${s.rpDelta > 0 ? "text-cyan-400" : s.rpDelta < 0 ? "text-red-400" : "text-muted-foreground"}`}>
+                          <td className={`p-4 font-mono font-bold ${s.rpDelta > 0 ? "text-emerald-400" : s.rpDelta < 0 ? "text-rose-400" : "text-muted-foreground"}`}>
                             {s.rpDelta > 0 ? `+${fmt(s.rpDelta)}` : fmt(s.rpDelta)}
                           </td>
-                          <td className="p-4">{fmt(s.level)}</td>
+                          <td className="p-4 text-muted-foreground">{fmt(s.level)}</td>
                           <td className={`p-4 font-mono ${s.killsDelta > 0 ? "text-rose-400" : "text-muted-foreground"}`}>
                             {s.hasData ? (s.killsDelta > 0 ? `+${fmt(s.killsDelta)}` : "0") : "—"}
                           </td>
                           <td className={`p-4 font-mono ${s.damageDelta > 0 ? "text-violet-400" : "text-muted-foreground"}`}>
-                            {s.hasData ? (s.damageDelta > 0 ? `+${fmt(s.damageDelta)}` : "0") : "—"}
+                            {s.hasData ? (s.damageDelta > 0 ? `+${fmtK(s.damageDelta)}` : "0") : "—"}
                           </td>
                           <td className="p-4 font-mono text-emerald-400">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
                           <td className="p-4 text-muted-foreground">{s.snapshotCount}</td>
                         </tr>
                       ))
-                    : squad.map((s) => (
-                        <tr key={s.playerId} className="border-b border-border/50 hover:bg-white/[0.02] transition-colors">
-                          <td className="p-4 font-semibold text-foreground">{s.name}</td>
+                    : squad.map((s, i) => (
+                        <tr key={s.playerId} className="border-b border-border/40 hover:bg-white/[0.015] transition-colors">
+                          <td className="p-4">
+                            <button onClick={() => navigate(`/players/${s.playerId}`)} className="flex items-center gap-3 group">
+                              <PlayerAvatar name={s.name} avatar={s.avatar} color={PLAYER_COLORS[i % PLAYER_COLORS.length]} size={32} />
+                              <span className="font-bold group-hover:text-primary transition-colors">{s.name}</span>
+                            </button>
+                          </td>
                           <td className="p-4"><RankBadge rankName={s.rankName} size={20} /></td>
-                          <td className="p-4 text-primary font-mono">{fmt(s.rankScore)}</td>
-                          <td className="p-4">{fmt(s.level)}</td>
-                          <td className="p-4">{fmt(s.kills)}</td>
-                          <td className="p-4">{fmt(s.damage)}</td>
-                          <td className="p-4 font-mono">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
-                          <td className="p-4 text-muted-foreground text-xs">
-                            {s.capturedAt ? new Date(s.capturedAt).toLocaleString() : "—"}
+                          <td className="p-4 font-mono font-semibold text-primary">{fmt(s.rankScore)}</td>
+                          <td className="p-4 text-muted-foreground">{fmt(s.level)}</td>
+                          <td className="p-4 font-mono">{fmt(s.kills)}</td>
+                          <td className="p-4 font-mono">{fmtK(s.damage)}</td>
+                          <td className="p-4 font-mono text-emerald-400">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
+                          <td className="p-4 text-muted-foreground text-xs font-mono">
+                            {s.capturedAt ? timeAgo(s.capturedAt) : "—"}
                           </td>
                         </tr>
                       ))}
@@ -788,93 +986,9 @@ export function Dashboard() {
               </table>
             </div>
           </section>
+
         </>
       )}
-    </div>
-  );
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function PlayerAvatar({
-  name,
-  avatar,
-  color,
-  size = 36,
-}: {
-  name: string;
-  avatar?: string | null;
-  color?: string;
-  size?: number;
-}) {
-  const [imgFailed, setImgFailed] = useState(false);
-  const initials = name.slice(0, 2).toUpperCase();
-  if (avatar && !imgFailed) {
-    return (
-      <img
-        src={avatar}
-        alt={name}
-        width={size}
-        height={size}
-        className="rounded-full object-cover shrink-0 ring-2 ring-border"
-        style={{ width: size, height: size }}
-        onError={() => setImgFailed(true)}
-      />
-    );
-  }
-  return (
-    <div
-      className="rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-background"
-      style={{ width: size, height: size, background: color ?? "#22d3ee" }}
-    >
-      {initials}
-    </div>
-  );
-}
-
-function MvpStat({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string; color?: string }) {
-  return (
-    <div className="text-center">
-      <div className={`flex items-center gap-1 justify-center text-xs text-muted-foreground mb-1 ${color}`}>
-        {icon} {label}
-      </div>
-      <div className={`text-xl font-bold ${color}`}>{value}</div>
-    </div>
-  );
-}
-
-function ChartCard({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-border bg-card p-5">
-      <div className="flex items-center gap-2 mb-4">
-        {icon}
-        <h2 className="text-base font-semibold">{title}</h2>
-      </div>
-      <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%">
-          {children as React.ReactElement}
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function Pill({ label, value, color }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="text-right">
-      <div className={`text-sm font-bold ${color ?? ""}`}>{value}</div>
-      <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{label}</div>
-    </div>
-  );
-}
-
-function StatCard({ icon, label, value, hint }: { icon: React.ReactNode; label: string; value: string | number; hint?: string }) {
-  return (
-    <div className="rounded-2xl border border-border bg-card p-5 flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-primary">{icon}</div>
-      <p className="text-xs text-muted-foreground uppercase tracking-wide">{label}</p>
-      <div className="text-2xl font-bold tracking-tight">{value}</div>
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
