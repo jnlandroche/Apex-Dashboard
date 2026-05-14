@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useGetSnapshots } from "@workspace/api-client-react";
+import { useGetSnapshots, useGetLeaderboard } from "@workspace/api-client-react";
 import {
   TrendingUp,
   TrendingDown,
@@ -33,6 +33,7 @@ type Snapshot = {
 type PlayerReport = {
   playerId: number;
   name: string;
+  avatar?: string | null;
   from: Snapshot;
   to: Snapshot;
   rpDelta: number;
@@ -97,6 +98,16 @@ function closestTo(snaps: Snapshot[], time: Date): Snapshot | null {
 
 export function SessionReport() {
   const { data: allSnapshots, isLoading } = useGetSnapshots();
+  const { data: leaderboard } = useGetLeaderboard();
+
+  // Build name → avatar map from leaderboard data
+  const avatarByName = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const p of leaderboard ?? []) {
+      map[p.name] = p.avatar ?? null;
+    }
+    return map;
+  }, [leaderboard]);
 
   // Default: last 8 hours
   const [fromDate, setFromDate] = useState<Date>(() => new Date(Date.now() - 8 * 60 * 60 * 1000));
@@ -141,6 +152,7 @@ export function SessionReport() {
       results.push({
         playerId,
         name,
+        avatar: avatarByName[name] ?? null,
         from: fromSnap,
         to: toSnap,
         rpDelta: (toSnap.rankScore ?? 0) - (fromSnap.rankScore ?? 0),
@@ -153,7 +165,7 @@ export function SessionReport() {
 
     // Sort by RP delta descending
     return results.sort((a, b) => b.rpDelta - a.rpDelta);
-  }, [byPlayer, fromDate, toDate]);
+  }, [byPlayer, fromDate, toDate, avatarByName]);
 
   const sessionWinner = reports.find((r) => r.rpDelta > 0) ?? reports[0];
   const hasData = reports.length > 0;
@@ -373,6 +385,34 @@ export function SessionReport() {
   );
 }
 
+// ─── Avatar ───────────────────────────────────────────────────────────────────
+
+function PlayerAvatar({ name, avatar, color, size = 36 }: { name: string; avatar?: string | null; color?: string; size?: number }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const initials = name.slice(0, 2).toUpperCase();
+  if (avatar && !imgFailed) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        width={size}
+        height={size}
+        className="rounded-full object-cover shrink-0 ring-2 ring-border"
+        style={{ width: size, height: size }}
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-background"
+      style={{ width: size, height: size, background: color ?? "#22d3ee" }}
+    >
+      {initials}
+    </div>
+  );
+}
+
 // ─── Player report card ───────────────────────────────────────────────────────
 
 function PlayerCard({ report: r }: { report: PlayerReport }) {
@@ -383,7 +423,8 @@ function PlayerCard({ report: r }: { report: PlayerReport }) {
     <div className="rounded-2xl border border-border bg-card overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-3 p-4 border-b border-border">
-        <div className="w-1 h-6 rounded-full" style={{ background: color }} />
+        <div className="w-1 h-6 rounded-full shrink-0" style={{ background: color }} />
+        <PlayerAvatar name={r.name} avatar={r.avatar} color={color} size={36} />
         <div className="font-bold text-lg">{r.name}</div>
         <div className="ml-auto text-xs text-muted-foreground">
           {new Date(r.from.capturedAt).toLocaleString()} → {new Date(r.to.capturedAt).toLocaleString()}

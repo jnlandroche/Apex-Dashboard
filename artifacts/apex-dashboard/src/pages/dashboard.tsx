@@ -417,8 +417,14 @@ export function Dashboard() {
                     className="rounded-xl border border-border bg-card p-4 flex items-center gap-4"
                   >
                     <div
-                      className="w-1 self-stretch rounded-full"
+                      className="w-1 self-stretch rounded-full shrink-0"
                       style={{ background: PLAYER_COLORS[i % PLAYER_COLORS.length] }}
+                    />
+                    <PlayerAvatar
+                      name={p.name}
+                      avatar={p.avatar}
+                      color={PLAYER_COLORS[i % PLAYER_COLORS.length]}
+                      size={38}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="font-bold truncate">{p.name}</div>
@@ -486,6 +492,42 @@ export function Dashboard() {
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
+
+function PlayerAvatar({
+  name,
+  avatar,
+  color,
+  size = 36,
+}: {
+  name: string;
+  avatar?: string | null;
+  color?: string;
+  size?: number;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const initials = name.slice(0, 2).toUpperCase();
+  if (avatar && !imgFailed) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        width={size}
+        height={size}
+        className="rounded-full object-cover shrink-0 ring-2 ring-border"
+        style={{ width: size, height: size }}
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-background"
+      style={{ width: size, height: size, background: color ?? "#22d3ee" }}
+    >
+      {initials}
+    </div>
+  );
+}
 
 function MvpStat({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: string; color?: string }) {
   return (

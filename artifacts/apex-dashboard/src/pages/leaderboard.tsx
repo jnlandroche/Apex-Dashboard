@@ -1,5 +1,32 @@
+import { useState } from "react";
 import { useGetLeaderboard } from "@workspace/api-client-react";
 import { Trophy } from "lucide-react";
+
+function PlayerAvatar({ name, avatar, size = 32 }: { name: string; avatar?: string | null; size?: number }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const initials = name.slice(0, 2).toUpperCase();
+  if (avatar && !imgFailed) {
+    return (
+      <img
+        src={avatar}
+        alt={name}
+        width={size}
+        height={size}
+        className="rounded-full object-cover ring-2 ring-border shrink-0"
+        style={{ width: size, height: size }}
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+  return (
+    <div
+      className="rounded-full flex items-center justify-center text-[10px] font-bold text-background shrink-0"
+      style={{ width: size, height: size, background: "#22d3ee" }}
+    >
+      {initials}
+    </div>
+  );
+}
 
 function fmt(n: number | null | undefined) {
   if (n == null) return "—";
@@ -78,7 +105,12 @@ export function Leaderboard() {
                         <span className="text-muted-foreground font-mono">{i + 1}</span>
                       )}
                     </td>
-                    <td className="p-4 font-bold">{s.name}</td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <PlayerAvatar name={s.name} avatar={s.avatar} size={32} />
+                        <span className="font-bold">{s.name}</span>
+                      </div>
+                    </td>
                     <td className={`p-4 font-medium ${rankColor(s.rankName)}`}>
                       {s.rankName ?? "—"}
                     </td>
