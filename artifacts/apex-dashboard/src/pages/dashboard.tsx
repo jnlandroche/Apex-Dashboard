@@ -643,18 +643,20 @@ export function Dashboard() {
 
           {/* K/D + player breakdown */}
           <section className="grid gap-6 xl:grid-cols-2">
-            {!isSession && (
-              <ChartCard title="K/D Ratio" icon={<Target size={14} className="text-primary" />}>
-                <BarChart data={barData} layout="vertical" margin={{ top: 4, right: 16, left: 40, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" horizontal={false} />
-                  <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11 }} />
-                  <YAxis type="category" dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} width={70} />
-                  <Tooltip {...TOOLTIP_STYLE} />
-                  <ReferenceLine x={1} stroke="#64748b" strokeDasharray="4 4" label={{ value: "1.0", fill: "#64748b", fontSize: 10 }} />
-                  <Bar dataKey="KD" fill="#10b981" radius={[0, 6, 6, 0]} />
-                </BarChart>
-              </ChartCard>
-            )}
+            <ChartCard title="K/D Ratio (lifetime)" icon={<Target size={14} className="text-primary" />}>
+              <BarChart
+                data={squad.map((p) => ({ name: p.name, KD: p.kd ?? 0 }))}
+                layout="vertical"
+                margin={{ top: 4, right: 16, left: 40, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" horizontal={false} />
+                <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} width={70} />
+                <Tooltip {...TOOLTIP_STYLE} />
+                <ReferenceLine x={1} stroke="#64748b" strokeDasharray="4 4" label={{ value: "1.0", fill: "#64748b", fontSize: 10 }} />
+                <Bar dataKey="KD" fill="#10b981" radius={[0, 6, 6, 0]} />
+              </BarChart>
+            </ChartCard>
 
             <div className={isSession ? "xl:col-span-2" : ""}>
               <div className="flex items-center gap-2 mb-3">
@@ -698,8 +700,17 @@ export function Dashboard() {
                             value={ss.rpDelta >= 0 ? `+${fmt(ss.rpDelta)}` : fmt(ss.rpDelta)}
                             color={ss.rpDelta >= 0 ? "text-cyan-400" : "text-red-400"}
                           />
-                          <Pill label="Kill Δ" value={ss.killsDelta > 0 ? `+${fmt(ss.killsDelta)}` : "—"} color="text-rose-400" />
-                          <Pill label="Dmg Δ" value={ss.damageDelta > 0 ? `+${(ss.damageDelta / 1000).toFixed(0)}k` : "—"} color="text-violet-400" />
+                          <Pill
+                            label="Kill Δ"
+                            value={ss.hasData ? (ss.killsDelta > 0 ? `+${fmt(ss.killsDelta)}` : "0") : "—"}
+                            color={ss.killsDelta > 0 ? "text-rose-400" : "text-muted-foreground"}
+                          />
+                          <Pill
+                            label="Dmg Δ"
+                            value={ss.hasData ? (ss.damageDelta > 0 ? `+${(ss.damageDelta / 1000).toFixed(0)}k` : "0") : "—"}
+                            color={ss.damageDelta > 0 ? "text-violet-400" : "text-muted-foreground"}
+                          />
+                          <Pill label="K/D" value={p.kd != null ? p.kd.toFixed(2) : "—"} color="text-emerald-400" />
                         </>
                       ) : (
                         <>
@@ -734,7 +745,7 @@ export function Dashboard() {
                     <th className="text-left p-4">Level</th>
                     <th className="text-left p-4">{isSession ? "Kills Δ" : "Kills"}</th>
                     <th className="text-left p-4">{isSession ? "Damage Δ" : "Damage"}</th>
-                    {!isSession && <th className="text-left p-4">K/D</th>}
+                    <th className="text-left p-4">K/D</th>
                     {!isSession && <th className="text-left p-4">Last Update</th>}
                     {isSession && <th className="text-left p-4">Snapshots</th>}
                   </tr>
@@ -749,8 +760,13 @@ export function Dashboard() {
                             {s.rpDelta > 0 ? `+${fmt(s.rpDelta)}` : fmt(s.rpDelta)}
                           </td>
                           <td className="p-4">{fmt(s.level)}</td>
-                          <td className="p-4 text-rose-400 font-mono">{s.killsDelta > 0 ? `+${fmt(s.killsDelta)}` : "—"}</td>
-                          <td className="p-4 text-violet-400 font-mono">{s.damageDelta > 0 ? `+${fmt(s.damageDelta)}` : "—"}</td>
+                          <td className={`p-4 font-mono ${s.killsDelta > 0 ? "text-rose-400" : "text-muted-foreground"}`}>
+                            {s.hasData ? (s.killsDelta > 0 ? `+${fmt(s.killsDelta)}` : "0") : "—"}
+                          </td>
+                          <td className={`p-4 font-mono ${s.damageDelta > 0 ? "text-violet-400" : "text-muted-foreground"}`}>
+                            {s.hasData ? (s.damageDelta > 0 ? `+${fmt(s.damageDelta)}` : "0") : "—"}
+                          </td>
+                          <td className="p-4 font-mono text-emerald-400">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
                           <td className="p-4 text-muted-foreground">{s.snapshotCount}</td>
                         </tr>
                       ))

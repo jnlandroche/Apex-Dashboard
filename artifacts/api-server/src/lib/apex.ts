@@ -69,21 +69,30 @@ export function extractMetrics(profile: ApexProfile) {
   // `total` is the flat aggregated stat bag — most reliable source
   const total = (raw.total ?? {}) as Record<string, TotalEntry>;
 
-  // kills: prefer specialEvent_kills (lifetime cross-legend), fallback kills
+  // kills: specialEvent_kills is the stable lifetime cross-legend total;
+  // plain "kills" is typically per-legend or per-season so we only use it as
+  // a fallback when specialEvent_kills is absent/zero.
   const kills = totalVal(total, "specialEvent_kills", "kills");
 
-  // damage: prefer specialEvent_damage (lifetime cross-legend), fallback damage
+  // damage: same logic — lifetime cross-legend total
   const damage = totalVal(total, "specialEvent_damage", "damage");
 
   // wins
   const wins = totalVal(total, "specialEvent_wins", "wins");
 
-  // K/D from total — the API returns "-1" when the player has it hidden.
-  // We never compute a fake ratio from kills/wins because the badge-tracker
-  // win counts are per-legend or per-event and produce wildly wrong values.
+  // deaths — used to compute K/D when the API hides it
+  const deaths = totalVal(total, "deaths", "specialEvent_deaths");
+
+  // K/D: use the API value when valid (> 0), otherwise compute from
+  // kills ÷ deaths (both come from the same lifetime total bag).
   const rawKdStr = (total["kd"] as TotalEntry | undefined)?.value;
   const rawKd = rawKdStr != null ? Number(rawKdStr) : 0;
-  const kd: number | null = rawKd > 0 ? Math.round(rawKd * 100) / 100 : null;
+  const computedKd =
+    kills > 0 && deaths > 0
+      ? Math.round((kills / deaths) * 100) / 100
+      : null;
+  const kd: number | null =
+    rawKd > 0 ? Math.round(rawKd * 100) / 100 : computedKd;
 
   return {
     level: Number((g.level as number | undefined) ?? 0),
