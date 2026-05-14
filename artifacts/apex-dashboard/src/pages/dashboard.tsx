@@ -12,6 +12,7 @@ import {
 import {
   BarChart,
   Bar,
+  Cell,
   CartesianGrid,
   XAxis,
   YAxis,
@@ -367,7 +368,7 @@ export function Dashboard() {
                 <Tooltip {...TOOLTIP_STYLE} />
                 <Bar dataKey="RP" radius={[6, 6, 0, 0]}>
                   {barData.map((_, i) => (
-                    <rect key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />
+                    <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />
                   ))}
                 </Bar>
               </BarChart>
