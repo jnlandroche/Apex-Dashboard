@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetDashboardSummary,
@@ -47,6 +47,17 @@ function fmt(n: number | null | undefined) {
 
 const PLAYER_COLORS = ["#22d3ee", "#f59e0b", "#f43f5e", "#8b5cf6", "#10b981"];
 
+const QUICK_PERIODS = [
+  { key: "total", label: "Total",  ms: 0 },
+  { key: "1h",   label: "Last 1h", ms: 1 * 3_600_000 },
+  { key: "4h",   label: "Last 4h", ms: 4 * 3_600_000 },
+  { key: "8h",   label: "Last 8h", ms: 8 * 3_600_000 },
+  { key: "24h",  label: "Last 24h", ms: 24 * 3_600_000 },
+  { key: "48h",  label: "Last 48h", ms: 48 * 3_600_000 },
+  { key: "7d",   label: "Last 7d",  ms: 7 * 24 * 3_600_000 },
+] as const;
+type PeriodKey = typeof QUICK_PERIODS[number]["key"];
+
 const TOOLTIP_STYLE = {
   contentStyle: {
     background: "hsl(222,47%,9%)",
@@ -73,6 +84,33 @@ type MvpResult = {
   score: number;
   snapshots: number;
   color: string;
+};
+
+type SquadPlayer = {
+  playerId: number;
+  name: string;
+  avatar?: string | null;
+  rankName?: string | null;
+  rankScore?: number | null;
+  level?: number | null;
+  kd?: number | null;
+  kills?: number | null;
+  damage?: number | null;
+};
+
+type SessionStats = {
+  playerId: number;
+  name: string;
+  avatar?: string | null;
+  rankName: string | null;
+  rankScore: number | null;
+  level: number | null;
+  kd: number | null;
+  rpDelta: number;
+  killsDelta: number;
+  damageDelta: number;
+  snapshotCount: number;
+  hasData: boolean;
 };
 
 // ─── Weekly MVP logic ─────────────────────────────────────────────────────────
@@ -112,6 +150,42 @@ function computeWeeklyMvp(trends: TrendPlayer[], playerColors: string[]): MvpRes
 
   if (!candidates.length) return null;
   return candidates.sort((a, b) => b.score - a.score)[0];
+}
+
+// ─── Session delta computation ────────────────────────────────────────────────
+
+function computeSessionStats(
+  trends: TrendPlayer[],
+  squad: SquadPlayer[],
+  periodMs: number,
+): SessionStats[] {
+  const now = Date.now();
+  const fromTime = now - periodMs;
+
+  return trends.map((t) => {
+    const sp = squad.find((s) => s.playerId === t.playerId);
+    const inWindow = t.dataPoints.filter(
+      (dp) => new Date(dp.capturedAt).getTime() >= fromTime,
+    );
+    const first = inWindow[0];
+    const last = inWindow[inWindow.length - 1];
+    const hasData = inWindow.length >= 1;
+
+    return {
+      playerId: t.playerId,
+      name: t.name,
+      avatar: sp?.avatar,
+      rankName: sp?.rankName ?? null,
+      rankScore: sp?.rankScore ?? null,
+      level: sp?.level ?? null,
+      kd: sp?.kd ?? null,
+      rpDelta: first && last ? last.rankScore - first.rankScore : 0,
+      killsDelta: first && last ? Math.max(0, (last.kills ?? 0) - (first.kills ?? 0)) : 0,
+      damageDelta: first && last ? Math.max(0, (last.damage ?? 0) - (first.damage ?? 0)) : 0,
+      snapshotCount: inWindow.length,
+      hasData,
+    };
+  });
 }
 
 // ─── Chart helpers ────────────────────────────────────────────────────────────
@@ -157,22 +231,44 @@ export function Dashboard() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [polling, setPolling] = useState(false);
+  const [periodKey, setPeriodKey] = useState<PeriodKey>("total");
 
-  const squad = data?.squadStats ?? [];
-
-  const barData = squad.map((p) => ({
-    name: p.name,
-    RP: p.rankScore ?? 0,
-    Kills: p.kills ?? 0,
-    Damage: Math.round((p.damage ?? 0) / 1000),
-    KD: p.kd ?? 0,
-  }));
+  const squad = (data?.squadStats ?? []) as SquadPlayer[];
+  const isSession = periodKey !== "total";
+  const periodMs = QUICK_PERIODS.find((p) => p.key === periodKey)?.ms ?? 0;
 
   const trendPlayers = (trends ?? []) as TrendPlayer[];
   const trendChartData = buildTrendChartData(trendPlayers);
   const hasTrends = trendChartData.length >= 2;
 
+  const sessionStats = useMemo(
+    () => (isSession ? computeSessionStats(trendPlayers, squad, periodMs) : []),
+    [isSession, trendPlayers, squad, periodMs],
+  );
+
+  const barData = isSession
+    ? sessionStats.map((s) => ({
+        name: s.name,
+        RP: s.rpDelta,
+        Kills: s.killsDelta,
+        Damage: Math.round(s.damageDelta / 1000),
+        KD: 0,
+      }))
+    : squad.map((p) => ({
+        name: p.name,
+        RP: p.rankScore ?? 0,
+        Kills: p.kills ?? 0,
+        Damage: Math.round((p.damage ?? 0) / 1000),
+        KD: p.kd ?? 0,
+      }));
+
   const mvp = computeWeeklyMvp(trendPlayers, PLAYER_COLORS);
+
+  // Session leader: player with highest RP delta in the selected window
+  const sessionLeader = isSession
+    ? [...sessionStats].sort((a, b) => b.rpDelta - a.rpDelta)[0] ?? null
+    : null;
+  const sessionLeaderHasData = sessionLeader && sessionLeader.rpDelta !== 0;
 
   async function handleRefresh() {
     setPolling(true);
@@ -246,12 +342,54 @@ export function Dashboard() {
         </div>
       </header>
 
+      {/* Period toggle */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs text-muted-foreground font-mono uppercase tracking-wide shrink-0">View</span>
+        <div className="flex flex-wrap gap-1">
+          {QUICK_PERIODS.map((p) => (
+            <button
+              key={p.key}
+              onClick={() => setPeriodKey(p.key)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                periodKey === p.key
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-card border border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {isSession && (
+          <span className="text-xs text-muted-foreground italic">showing session deltas</span>
+        )}
+      </div>
+
       {/* Stat cards */}
       <section className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={<Users size={18} />} label="Players Tracked" value={fmt(data?.playerCount)} />
         <StatCard icon={<Trophy size={18} />} label="Top Ranked" value={data?.topRankedPlayer ?? "—"} hint={data?.topRankedRank ?? undefined} />
-        <StatCard icon={<Crosshair size={18} />} label="Squad Kills" value={fmt(data?.totalKills)} />
-        <StatCard icon={<Zap size={18} />} label="Squad Damage" value={fmt(data?.totalDamage)} />
+        {isSession ? (
+          <>
+            <StatCard
+              icon={<Crosshair size={18} />}
+              label="Session Kills"
+              value={fmt(sessionStats.reduce((s, p) => s + p.killsDelta, 0))}
+              hint="delta in window"
+            />
+            <StatCard
+              icon={<Zap size={18} />}
+              label="Session Damage"
+              value={fmt(sessionStats.reduce((s, p) => s + p.damageDelta, 0))}
+              hint="delta in window"
+            />
+          </>
+        ) : (
+          <>
+            <StatCard icon={<Crosshair size={18} />} label="Squad Kills" value={fmt(data?.totalKills)} />
+            <StatCard icon={<Zap size={18} />} label="Squad Damage" value={fmt(data?.totalDamage)} />
+          </>
+        )}
       </section>
 
       {noPlayers ? (
@@ -264,58 +402,66 @@ export function Dashboard() {
         </div>
       ) : (
         <>
-          {/* Weekly MVP */}
-          {mvp ? (
+          {/* Session leader / Weekly MVP */}
+          {isSession ? (
+            sessionLeaderHasData ? (() => {
+              const sl = sessionLeader!;
+              const idx = trendPlayers.findIndex((t) => t.playerId === sl.playerId);
+              const color = PLAYER_COLORS[idx >= 0 ? idx % PLAYER_COLORS.length : 0];
+              return (
+                <section
+                  className="rounded-2xl border border-border bg-gradient-to-br from-slate-900 to-slate-800 p-6 relative overflow-hidden"
+                  style={{ borderColor: color + "44" }}
+                >
+                  <div className="absolute inset-0 opacity-5" style={{ background: `radial-gradient(ellipse at top left, ${color}, transparent 70%)` }} />
+                  <div className="relative flex flex-col sm:flex-row sm:items-center gap-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: color + "22", border: `1.5px solid ${color}44` }}>
+                        <Star size={24} style={{ color }} />
+                      </div>
+                      <div>
+                        <div className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground mb-0.5">Session Leader</div>
+                        <div className="text-3xl font-bold" style={{ color }}>{sl.name}</div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {QUICK_PERIODS.find((p) => p.key === periodKey)?.label} window · {sl.snapshotCount} snapshot{sl.snapshotCount !== 1 ? "s" : ""}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="sm:ml-auto flex gap-6 flex-wrap">
+                      <MvpStat icon={<TrendingUp size={14} />} label="RP Gained" value={sl.rpDelta >= 0 ? `+${fmt(sl.rpDelta)}` : fmt(sl.rpDelta)} color="text-cyan-400" />
+                      <MvpStat icon={<Swords size={14} />} label="Kills Gained" value={sl.killsDelta > 0 ? `+${fmt(sl.killsDelta)}` : "—"} color="text-rose-400" />
+                      <MvpStat icon={<Flame size={14} />} label="Dmg Gained" value={sl.damageDelta > 0 ? `+${fmt(sl.damageDelta)}` : "—"} color="text-violet-400" />
+                    </div>
+                  </div>
+                </section>
+              );
+            })() : (
+              <div className="rounded-2xl border border-dashed border-border/60 bg-card/30 px-5 py-4 flex items-center gap-3 text-sm text-muted-foreground">
+                <Star size={15} className="text-primary shrink-0" />
+                No RP changes found in this window. Try a wider period or refresh stats.
+              </div>
+            )
+          ) : mvp ? (
             <section
               className="rounded-2xl border border-border bg-gradient-to-br from-slate-900 to-slate-800 p-6 relative overflow-hidden"
               style={{ borderColor: mvp.color + "44" }}
             >
-              <div
-                className="absolute inset-0 opacity-5"
-                style={{
-                  background: `radial-gradient(ellipse at top left, ${mvp.color}, transparent 70%)`,
-                }}
-              />
+              <div className="absolute inset-0 opacity-5" style={{ background: `radial-gradient(ellipse at top left, ${mvp.color}, transparent 70%)` }} />
               <div className="relative flex flex-col sm:flex-row sm:items-center gap-6">
                 <div className="flex items-center gap-4">
-                  <div
-                    className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0"
-                    style={{ background: mvp.color + "22", border: `1.5px solid ${mvp.color}44` }}
-                  >
+                  <div className="w-14 h-14 rounded-2xl flex items-center justify-center shrink-0" style={{ background: mvp.color + "22", border: `1.5px solid ${mvp.color}44` }}>
                     <Star size={24} style={{ color: mvp.color }} />
                   </div>
                   <div>
-                    <div className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground mb-0.5">
-                      Weekly MVP
-                    </div>
-                    <div className="text-3xl font-bold" style={{ color: mvp.color }}>
-                      {mvp.name}
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      Based on {mvp.snapshots} snapshots in the last 7 days
-                    </div>
+                    <div className="text-xs font-mono uppercase tracking-[0.2em] text-muted-foreground mb-0.5">Weekly MVP</div>
+                    <div className="text-3xl font-bold" style={{ color: mvp.color }}>{mvp.name}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">Based on {mvp.snapshots} snapshots in the last 7 days</div>
                   </div>
                 </div>
-
                 <div className="sm:ml-auto flex gap-6 flex-wrap">
-                  <MvpStat
-                    icon={<TrendingUp size={14} />}
-                    label="RP Gained"
-                    value={`+${fmt(mvp.rpGained)}`}
-                    color="text-cyan-400"
-                  />
-                  <MvpStat
-                    icon={<Swords size={14} />}
-                    label="New Kills"
-                    value={mvp.killsGained > 0 ? `+${fmt(mvp.killsGained)}` : "—"}
-                    color="text-rose-400"
-                  />
-                  <MvpStat
-                    icon={<Flame size={14} />}
-                    label="New Damage"
-                    value={mvp.damageGained > 0 ? `+${fmt(mvp.damageGained)}` : "—"}
-                    color="text-violet-400"
-                  />
+                  <MvpStat icon={<TrendingUp size={14} />} label="RP Gained" value={`+${fmt(mvp.rpGained)}`} color="text-cyan-400" />
+                  <MvpStat icon={<Swords size={14} />} label="New Kills" value={mvp.killsGained > 0 ? `+${fmt(mvp.killsGained)}` : "—"} color="text-rose-400" />
+                  <MvpStat icon={<Flame size={14} />} label="New Damage" value={mvp.damageGained > 0 ? `+${fmt(mvp.damageGained)}` : "—"} color="text-violet-400" />
                 </div>
               </div>
             </section>
@@ -359,9 +505,9 @@ export function Dashboard() {
             </section>
           )}
 
-          {/* Comparison charts */}
+          {/* Comparison bar charts */}
           <section className="grid gap-6 xl:grid-cols-3">
-            <ChartCard title="Rank Points" icon={<Trophy size={14} className="text-primary" />}>
+            <ChartCard title={isSession ? "RP Gained" : "Rank Points"} icon={<Trophy size={14} className="text-primary" />}>
               <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
                 <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
@@ -375,7 +521,7 @@ export function Dashboard() {
               </BarChart>
             </ChartCard>
 
-            <ChartCard title="Total Kills" icon={<Crosshair size={14} className="text-primary" />}>
+            <ChartCard title={isSession ? "Kills Gained" : "Total Kills"} icon={<Crosshair size={14} className="text-primary" />}>
               <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
                 <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
@@ -385,7 +531,7 @@ export function Dashboard() {
               </BarChart>
             </ChartCard>
 
-            <ChartCard title="Damage (thousands)" icon={<Zap size={14} className="text-primary" />}>
+            <ChartCard title={isSession ? "Damage Gained (k)" : "Damage (thousands)"} icon={<Zap size={14} className="text-primary" />}>
               <BarChart data={barData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" />
                 <XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} />
@@ -398,24 +544,28 @@ export function Dashboard() {
 
           {/* K/D + player breakdown */}
           <section className="grid gap-6 xl:grid-cols-2">
-            <ChartCard title="K/D Ratio" icon={<Target size={14} className="text-primary" />}>
-              <BarChart data={barData} layout="vertical" margin={{ top: 4, right: 16, left: 40, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" horizontal={false} />
-                <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} width={70} />
-                <Tooltip {...TOOLTIP_STYLE} />
-                <ReferenceLine x={1} stroke="#64748b" strokeDasharray="4 4" label={{ value: "1.0", fill: "#64748b", fontSize: 10 }} />
-                <Bar dataKey="KD" fill="#10b981" radius={[0, 6, 6, 0]} />
-              </BarChart>
-            </ChartCard>
+            {!isSession && (
+              <ChartCard title="K/D Ratio" icon={<Target size={14} className="text-primary" />}>
+                <BarChart data={barData} layout="vertical" margin={{ top: 4, right: 16, left: 40, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.08)" horizontal={false} />
+                  <XAxis type="number" stroke="#64748b" tick={{ fontSize: 11 }} />
+                  <YAxis type="category" dataKey="name" stroke="#64748b" tick={{ fontSize: 11 }} width={70} />
+                  <Tooltip {...TOOLTIP_STYLE} />
+                  <ReferenceLine x={1} stroke="#64748b" strokeDasharray="4 4" label={{ value: "1.0", fill: "#64748b", fontSize: 10 }} />
+                  <Bar dataKey="KD" fill="#10b981" radius={[0, 6, 6, 0]} />
+                </BarChart>
+              </ChartCard>
+            )}
 
-            <div>
+            <div className={isSession ? "xl:col-span-2" : ""}>
               <div className="flex items-center gap-2 mb-3">
                 <Shield size={14} className="text-primary" />
                 <h2 className="text-base font-semibold">Player Breakdown</h2>
               </div>
               <div className="space-y-3">
-                {squad.map((p, i) => (
+                {squad.map((p, i) => {
+                  const ss = isSession ? sessionStats.find((s) => s.playerId === p.playerId) : null;
+                  return (
                   <div
                     key={p.playerId}
                     className="rounded-xl border border-border bg-card p-4 flex items-center gap-4"
@@ -441,14 +591,29 @@ export function Dashboard() {
                         </div>
                       </div>
                     </button>
-                    <div className="flex gap-4 text-right">
-                      <Pill label="RP" value={fmt(p.rankScore)} color="text-cyan-400" />
-                      <Pill label="Kills" value={fmt(p.kills)} color="text-rose-400" />
-                      <Pill label="K/D" value={p.kd != null ? p.kd.toFixed(2) : "—"} color="text-emerald-400" />
-                      <Pill label="Dmg" value={p.damage ? `${(p.damage / 1000).toFixed(0)}k` : "—"} color="text-violet-400" />
+                    <div className="flex gap-4 text-right ml-auto">
+                      {ss ? (
+                        <>
+                          <Pill
+                            label="RP Δ"
+                            value={ss.rpDelta >= 0 ? `+${fmt(ss.rpDelta)}` : fmt(ss.rpDelta)}
+                            color={ss.rpDelta >= 0 ? "text-cyan-400" : "text-red-400"}
+                          />
+                          <Pill label="Kill Δ" value={ss.killsDelta > 0 ? `+${fmt(ss.killsDelta)}` : "—"} color="text-rose-400" />
+                          <Pill label="Dmg Δ" value={ss.damageDelta > 0 ? `+${(ss.damageDelta / 1000).toFixed(0)}k` : "—"} color="text-violet-400" />
+                        </>
+                      ) : (
+                        <>
+                          <Pill label="RP" value={fmt(p.rankScore)} color="text-cyan-400" />
+                          <Pill label="Kills" value={fmt(p.kills)} color="text-rose-400" />
+                          <Pill label="K/D" value={p.kd != null ? p.kd.toFixed(2) : "—"} color="text-emerald-400" />
+                          <Pill label="Dmg" value={p.damage ? `${(p.damage / 1000).toFixed(0)}k` : "—"} color="text-violet-400" />
+                        </>
+                      )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </section>
@@ -456,7 +621,9 @@ export function Dashboard() {
           {/* Full squad table */}
           <section className="rounded-2xl border border-border bg-card overflow-hidden">
             <div className="p-5 border-b border-border">
-              <h2 className="text-base font-semibold">Full Squad Snapshot</h2>
+              <h2 className="text-base font-semibold">
+                {isSession ? `Session Snapshot · ${QUICK_PERIODS.find((p) => p.key === periodKey)?.label}` : "Full Squad Snapshot"}
+              </h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -464,32 +631,44 @@ export function Dashboard() {
                   <tr className="text-muted-foreground text-xs uppercase tracking-wider border-b border-border">
                     <th className="text-left p-4">Player</th>
                     <th className="text-left p-4">Rank</th>
-                    <th className="text-left p-4">RP</th>
+                    <th className="text-left p-4">{isSession ? "RP Δ" : "RP"}</th>
                     <th className="text-left p-4">Level</th>
-                    <th className="text-left p-4">Kills</th>
-                    <th className="text-left p-4">Damage</th>
-                    <th className="text-left p-4">K/D</th>
-                    <th className="text-left p-4">Last Update</th>
+                    <th className="text-left p-4">{isSession ? "Kills Δ" : "Kills"}</th>
+                    <th className="text-left p-4">{isSession ? "Damage Δ" : "Damage"}</th>
+                    {!isSession && <th className="text-left p-4">K/D</th>}
+                    {!isSession && <th className="text-left p-4">Last Update</th>}
+                    {isSession && <th className="text-left p-4">Snapshots</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {squad.map((s) => (
-                    <tr
-                      key={s.playerId}
-                      className="border-b border-border/50 hover:bg-white/[0.02] transition-colors"
-                    >
-                      <td className="p-4 font-semibold text-foreground">{s.name}</td>
-                      <td className="p-4"><RankBadge rankName={s.rankName} size={20} /></td>
-                      <td className="p-4 text-primary font-mono">{fmt(s.rankScore)}</td>
-                      <td className="p-4">{fmt(s.level)}</td>
-                      <td className="p-4">{fmt(s.kills)}</td>
-                      <td className="p-4">{fmt(s.damage)}</td>
-                      <td className="p-4 font-mono">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
-                      <td className="p-4 text-muted-foreground text-xs">
-                        {s.capturedAt ? new Date(s.capturedAt).toLocaleString() : "—"}
-                      </td>
-                    </tr>
-                  ))}
+                  {isSession
+                    ? sessionStats.map((s) => (
+                        <tr key={s.playerId} className="border-b border-border/50 hover:bg-white/[0.02] transition-colors">
+                          <td className="p-4 font-semibold text-foreground">{s.name}</td>
+                          <td className="p-4"><RankBadge rankName={s.rankName} size={20} /></td>
+                          <td className={`p-4 font-mono font-bold ${s.rpDelta > 0 ? "text-cyan-400" : s.rpDelta < 0 ? "text-red-400" : "text-muted-foreground"}`}>
+                            {s.rpDelta > 0 ? `+${fmt(s.rpDelta)}` : fmt(s.rpDelta)}
+                          </td>
+                          <td className="p-4">{fmt(s.level)}</td>
+                          <td className="p-4 text-rose-400 font-mono">{s.killsDelta > 0 ? `+${fmt(s.killsDelta)}` : "—"}</td>
+                          <td className="p-4 text-violet-400 font-mono">{s.damageDelta > 0 ? `+${fmt(s.damageDelta)}` : "—"}</td>
+                          <td className="p-4 text-muted-foreground">{s.snapshotCount}</td>
+                        </tr>
+                      ))
+                    : squad.map((s) => (
+                        <tr key={s.playerId} className="border-b border-border/50 hover:bg-white/[0.02] transition-colors">
+                          <td className="p-4 font-semibold text-foreground">{s.name}</td>
+                          <td className="p-4"><RankBadge rankName={s.rankName} size={20} /></td>
+                          <td className="p-4 text-primary font-mono">{fmt(s.rankScore)}</td>
+                          <td className="p-4">{fmt(s.level)}</td>
+                          <td className="p-4">{fmt(s.kills)}</td>
+                          <td className="p-4">{fmt(s.damage)}</td>
+                          <td className="p-4 font-mono">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
+                          <td className="p-4 text-muted-foreground text-xs">
+                            {s.capturedAt ? new Date(s.capturedAt).toLocaleString() : "—"}
+                          </td>
+                        </tr>
+                      ))}
                 </tbody>
               </table>
             </div>
