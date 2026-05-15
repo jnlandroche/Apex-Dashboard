@@ -13,7 +13,7 @@ export type SchedulerState = {
   lastResults: PollResult[];
 };
 
-const DEFAULT_INTERVAL_HOURS = 4;
+const DEFAULT_INTERVAL_HOURS = 1;
 
 const state: SchedulerState = {
   enabled: true,
