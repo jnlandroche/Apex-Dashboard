@@ -1,3 +1,5 @@
+import { logger } from "./logger.js";
+
 export type ApexPlatform = "PC" | "X1" | "PS4" | "SWITCH";
 
 export type ApexProfile = {
@@ -92,9 +94,14 @@ export function extractMetrics(profile: ApexProfile) {
   const computedKd =
     kills > 0 && deaths > 0
       ? Math.round((kills / deaths) * 100) / 100
-      : null;
-  const kd: number | null =
+      : 0;
+  const kd: number =
     rawKd > 0 ? Math.round(rawKd * 100) / 100 : computedKd;
+
+  logger.debug(
+    { playerName: profile.name, kills, damage, kd, deaths, rawKd },
+    "Extracted metrics from Apex API response",
+  );
 
   return {
     level: Number((g.level as number | undefined) ?? 0),
