@@ -2,6 +2,13 @@ import { logger } from "./logger.js";
 
 export type ApexPlatform = "PC" | "X1" | "PS4" | "SWITCH";
 
+export type ApexHistoryEntry = {
+  timestamp: number;
+  rankScore: number;
+  kills: number;
+  damage: number;
+};
+
 export type ApexProfile = {
   uid?: string;
   name: string;
@@ -12,6 +19,7 @@ export type ApexProfile = {
   rankScore?: number;
   global?: unknown;
   raw: unknown;
+  history: ApexHistoryEntry[];
 };
 
 const API_BASE = "https://api.mozambiquehe.re";
@@ -35,6 +43,20 @@ export async function fetchApexProfile(
   }
   const global = (data.global ?? {}) as Record<string, unknown>;
   const rank = (global.rank ?? {}) as Record<string, unknown>;
+
+  const rawHistory = Array.isArray(data.history) ? data.history : [];
+  const history: ApexHistoryEntry[] = rawHistory
+    .filter(
+      (e): e is Record<string, unknown> =>
+        e != null && typeof e === "object" && typeof e.timestamp === "number",
+    )
+    .map((e) => ({
+      timestamp: e.timestamp as number,
+      rankScore: Number(e.rankScore ?? e.rank_score ?? 0),
+      kills: Number(e.kills ?? 0),
+      damage: Number(e.damage ?? 0),
+    }));
+
   return {
     uid: String(global.uid ?? ""),
     name: String(global.name ?? playerName),
@@ -45,6 +67,7 @@ export async function fetchApexProfile(
     rankScore: Number(rank.rankScore ?? 0),
     global,
     raw: data,
+    history,
   };
 }
 

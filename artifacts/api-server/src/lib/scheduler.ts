@@ -1,5 +1,5 @@
 import { db, playersTable, statSnapshotsTable } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
 import { fetchApexProfile, extractMetrics } from "./apex.js";
 import { logger } from "./logger.js";
 
@@ -61,6 +61,49 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
         damage: metrics.damage,
         kd: metrics.kd,
       });
+
+      // Backfill API-returned history entries as additional snapshots.
+      // This gives the delta endpoint more accurate time-anchored data points
+      // rather than relying solely on our 4h scheduler timing.
+      if (profile.history.length > 0) {
+        let backfilled = 0;
+        for (const entry of profile.history) {
+          if (entry.kills === 0 && entry.damage === 0) continue;
+
+          const entryTime = new Date(entry.timestamp * 1000);
+          const windowStart = new Date(entryTime.getTime() - 10 * 60 * 1000);
+          const windowEnd = new Date(entryTime.getTime() + 10 * 60 * 1000);
+
+          const existing = await db
+            .select({ id: statSnapshotsTable.id })
+            .from(statSnapshotsTable)
+            .where(
+              and(
+                eq(statSnapshotsTable.playerId, player.id),
+                gte(statSnapshotsTable.capturedAt, windowStart),
+                lte(statSnapshotsTable.capturedAt, windowEnd),
+              ),
+            )
+            .limit(1);
+
+          if (existing.length === 0) {
+            await db.insert(statSnapshotsTable).values({
+              playerId: player.id,
+              capturedAt: entryTime,
+              rankName: metrics.rankName,
+              rankScore: entry.rankScore,
+              level: metrics.level,
+              kills: entry.kills,
+              damage: entry.damage,
+              kd: metrics.kd,
+            });
+            backfilled++;
+          }
+        }
+        if (backfilled > 0) {
+          logger.info({ playerName: player.name, backfilled }, "Backfilled API history snapshots");
+        }
+      }
 
       if (metrics.avatar && metrics.avatar !== player.avatar) {
         await db
