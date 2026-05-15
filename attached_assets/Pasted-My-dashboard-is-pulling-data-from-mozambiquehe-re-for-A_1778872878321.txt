@@ -1,0 +1,46 @@
+My dashboard is pulling data from mozambiquehe.re for Apex Legends player stats. RP is working correctly but Kills, Damage, and K/D are all showing — across all time windows (Last 1h, 4h, 8h, 24h, 48h, 7d) and the delta calculations aren't working.
+Please look at these files and fix the issues:
+
+src/lib/apex.ts — where the mozambiquehe.re API response is parsed
+src/routes/snapshots.ts — where snapshots are saved and deltas are calculated
+src/routes/players.ts — player route handlers
+src/routes/dashboard.ts — dashboard aggregation
+
+The mozambiquehe.re API returns data in this structure:
+json{
+  "global": {
+    "name": "OpticS-",
+    "rank": {
+      "rankScore": 9338,
+      "rankName": "Platinum",
+      "rankDiv": 1
+    },
+    "level": 329,
+    "toNextLevelPercent": 45
+  },
+  "realtime": {
+    "currentState": "offline"
+  },
+  "total": {
+    "kills": { "value": 10142, "name": "Kills" },
+    "damage": { "value": 2847291, "name": "Damage Done" },
+    "kd": { "value": 2.47, "name": "K/D Ratio" }
+  },
+  "legends": {
+    "selected": {
+      "LegendName": "Wraith",
+      "data": [
+        { "name": "Kills", "value": 4821 },
+        { "name": "Damage Done", "value": 1243891 }
+      ]
+    }
+  }
+}
+What needs to be fixed:
+
+In apex.ts — make sure kills, damage, and KD are being read from total.kills.value, total.damage.value, and total.kd.value respectively. Do NOT read them from legends.selected.data or any nested legend-specific field.
+In snapshots.ts — make sure every snapshot being saved includes kills, damage, and kd fields alongside rankScore. The delta calculation for each time window must subtract the oldest snapshot's kills/damage from the newest snapshot's kills/damage. If only one snapshot exists in the window, return 0 for deltas, not null or undefined (which renders as — on the frontend).
+In dashboard.ts — make sure the aggregated response includes sessionKills, sessionDamage, and kd fields and that they are passed through even when the value is 0 (do not filter out falsy values).
+Check that the TypeScript types/interfaces for snapshots and player data include kills: number, damage: number, and kd: number as non-optional fields. If they are typed as optional (kills?: number) that may cause them to be skipped during serialization or delta calculation.
+
+After fixing, please also add a console.log in apex.ts that prints the raw kills, damage, and kd values pulled from the API response so I can verify the data is coming through correctly in the server logs.
