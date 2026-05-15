@@ -80,6 +80,22 @@ router.get("/dashboard/leaderboard", async (req, res) => {
   res.json(sorted);
 });
 
+// Collapse a sorted list of snapshots into one data point per 4-hour bucket.
+// Keeps the last snapshot in each bucket so the chart plots the final RP value
+// reached in that window — this makes ranked swings more visible.
+const TREND_BUCKET_MS = 4 * 60 * 60 * 1000;
+
+function downsampleTo4h<T extends { capturedAt: Date }>(rows: T[]): T[] {
+  const buckets = new Map<number, T>();
+  for (const row of rows) {
+    const bucket = Math.floor(row.capturedAt.getTime() / TREND_BUCKET_MS);
+    buckets.set(bucket, row);
+  }
+  return [...buckets.values()].sort(
+    (a, b) => a.capturedAt.getTime() - b.capturedAt.getTime(),
+  );
+}
+
 // GET /dashboard/trends
 router.get("/dashboard/trends", async (req, res) => {
   const activePlayers = await db.select().from(playersTable).where(eq(playersTable.active, true));
@@ -96,12 +112,14 @@ router.get("/dashboard/trends", async (req, res) => {
         .from(statSnapshotsTable)
         .where(eq(statSnapshotsTable.playerId, player.id))
         .orderBy(statSnapshotsTable.capturedAt)
-        .limit(100);
+        .limit(500);
+
+      const downsampled = downsampleTo4h(snapshots);
 
       return {
         playerId: player.id,
         name: player.name,
-        dataPoints: snapshots.map(s => ({
+        dataPoints: downsampled.map(s => ({
           capturedAt: s.capturedAt.toISOString(),
           rankScore: s.rankScore ?? 0,
           kills: s.kills ?? 0,
