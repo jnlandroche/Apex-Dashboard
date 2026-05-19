@@ -116,6 +116,24 @@ function totalVal(
   return 0;
 }
 
+// Returns the highest value across all candidate keys. Use when the API stores
+// the same logical stat under different field names per player and we want the
+// most comprehensive reading rather than a fixed priority order.
+function totalMax(
+  total: Record<string, TotalEntry>,
+  ...keys: string[]
+): number {
+  let best = 0;
+  for (const key of keys) {
+    const entry = total[key];
+    if (entry?.value != null) {
+      const n = Number(entry.value);
+      if (!isNaN(n) && n > best) best = n;
+    }
+  }
+  return best;
+}
+
 export function extractMetrics(profile: ApexProfile) {
   const g = (profile.global as Record<string, unknown> | undefined) ?? {};
   const raw = profile.raw as Record<string, unknown>;
@@ -123,15 +141,17 @@ export function extractMetrics(profile: ApexProfile) {
   // `total` is the flat aggregated stat bag — most reliable source
   const total = (raw.total ?? {}) as Record<string, TotalEntry>;
 
-  // kills: The Mozambique API uses inconsistent key names across players:
-  //   - "career_kills"       → all-time total, the most reliable live counter
-  //   - "specialEvent_kills" → often the broadest aggregate when career_kills absent
-  //   - "kills"              → per-player meaning varies (season badge, event, etc.)
-  // Priority: career_kills > specialEvent_kills > kills
-  const kills = totalVal(total, "career_kills", "specialEvent_kills", "kills");
+  // kills: The Mozambique API stores the same stat under different field names
+  // per player. "career_kills" may be a frozen badge on some accounts while
+  // "specialEvent_kills" is the live counter, or vice-versa. Taking the MAX
+  // across all known kill fields always gives the most comprehensive reading,
+  // regardless of which one the API updates for a given player.
+  const kills = totalMax(total, "career_kills", "specialEvent_kills", "kills");
 
-  // damage: same logic — plain "damage" is the actively updated tracker
-  const damage = totalVal(total, "damage", "specialEvent_damage");
+  // damage: same issue — for some players "damage" is a partial tracker (e.g.
+  // Daveskey reads 84 K from "damage" vs 1.4 M from "specialEvent_damage").
+  // Take the max so we never under-report career damage.
+  const damage = totalMax(total, "damage", "specialEvent_damage");
 
   // wins
   const wins = totalVal(total, "specialEvent_wins", "wins");

@@ -419,7 +419,7 @@ export function Dashboard() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [polling, setPolling] = useState(false);
-  const [periodKey, setPeriodKey] = useState<PeriodKey>("total");
+  const [periodKey, setPeriodKey] = useState<PeriodKey>("7d");
 
   const squad = (data?.squadStats ?? []) as SquadPlayer[];
   const isSession = periodKey !== "total";
