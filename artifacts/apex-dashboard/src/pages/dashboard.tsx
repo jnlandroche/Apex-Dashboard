@@ -385,13 +385,13 @@ function PlayerCard({
           </div>
           <div className="flex flex-col gap-0.5">
             <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Kills</div>
-            <div className="text-base font-bold font-mono text-rose-400">{fmt(isSession && sessionStat ? undefined : player.kills)}{isSession && sessionStat ? <DeltaPill value={sessionStat.killsDelta} /> : null}</div>
-            {!isSession && <div className="text-[10px] text-muted-foreground font-mono">tracked</div>}
+            <div className="text-base font-bold font-mono text-rose-400">{fmt(player.kills)}</div>
+            <div className="text-[10px] text-muted-foreground font-mono">career</div>
           </div>
           <div className="flex flex-col gap-0.5">
             <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Dmg</div>
             <div className="text-base font-bold font-mono text-violet-400">
-              {isSession && sessionStat ? <DeltaPill value={sessionStat.damageDelta} suffix="" /> : fmtK(player.damage)}
+              {fmtK(player.damage)}
             </div>
           </div>
         </div>
@@ -606,7 +606,7 @@ export function Dashboard() {
           ))}
         </div>
         {isSession && (
-          <span className="text-[10px] text-muted-foreground font-mono italic">· showing deltas</span>
+          <span className="text-[10px] text-muted-foreground font-mono italic">· showing RP deltas</span>
         )}
       </div>
 
@@ -614,17 +614,8 @@ export function Dashboard() {
       <section className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <StatCard icon={<Users size={16} />} label="Players Tracked" value={fmt(data?.playerCount)} />
         <StatCard icon={<Trophy size={16} />} label="Top Ranked" value={data?.topRankedPlayer ?? "—"} hint={data?.topRankedRank ?? undefined} accent />
-        {isSession ? (
-          <>
-            <StatCard icon={<Crosshair size={16} />} label="Session Kills" value={fmt(sessionStats.reduce((s, p) => s + p.killsDelta, 0))} hint="delta in window" />
-            <StatCard icon={<Zap size={16} />} label="Session Damage" value={fmtK(sessionStats.reduce((s, p) => s + p.damageDelta, 0))} hint="delta in window" />
-          </>
-        ) : (
-          <>
-            <StatCard icon={<Crosshair size={16} />} label="Squad Kills" value={fmt(data?.totalKills)} />
-            <StatCard icon={<Zap size={16} />} label="Squad Damage" value={fmtK(data?.totalDamage)} />
-          </>
-        )}
+        <StatCard icon={<Crosshair size={16} />} label="Squad Kills" value={fmt(data?.totalKills)} hint="career totals" />
+        <StatCard icon={<Zap size={16} />} label="Squad Damage" value={fmtK(data?.totalDamage)} hint="career totals" />
       </section>
 
       {/* ── Empty state ─────────────────────────────────────────────────────── */}
