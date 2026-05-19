@@ -264,10 +264,10 @@ export function PlayerProfile() {
         <>
           {/* Stat cards */}
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <StatCard icon={<Trophy size={14} />} label="Rank Points" value={fmt(latestSnap.rankScore)} delta={rpDelta} color="text-primary" />
-            <StatCard icon={<Crosshair size={14} />} label="Kills" value={fmt(latestSnap.kills)} delta={killsDelta} color="text-rose-400" />
-            <StatCard icon={<Zap size={14} />} label="Damage" value={fmtK(latestSnap.damage)} delta={damageDelta} color="text-violet-400" />
-            <StatCard icon={<Target size={14} />} label="K/D Ratio" value={latestSnap.kd != null ? latestSnap.kd.toFixed(2) : "—"} color="text-emerald-400" />
+            <StatCard icon={<Trophy size={14} />} label="Rank Points" value={fmt(latestSnap.rankScore)} delta={rpDelta} color="#dc2626" />
+            <StatCard icon={<Crosshair size={14} />} label="Kills (Career)" value={fmt(latestSnap.kills)} delta={killsDelta} color="#f43f5e" />
+            <StatCard icon={<Zap size={14} />} label="Damage (Career)" value={fmtK(latestSnap.damage)} delta={damageDelta} color="#8b5cf6" />
+            <StatCard icon={<Target size={14} />} label="K/D Ratio" value={latestSnap.kd != null ? latestSnap.kd.toFixed(2) : "—"} color="#10b981" />
           </div>
 
           {/* RP chart */}

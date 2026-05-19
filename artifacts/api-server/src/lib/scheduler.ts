@@ -2,6 +2,7 @@ import { db, playersTable, statSnapshotsTable } from "@workspace/db";
 import { eq, and, gte, lte } from "drizzle-orm";
 import { fetchApexProfile, extractMetrics } from "./apex.js";
 import { logger } from "./logger.js";
+import { writePollLog } from "./pollLog.js";
 
 export type PollResult = { name: string; status: "updated" | "error"; error: string | null };
 
@@ -36,6 +37,8 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
   const results: PollResult[] = [];
 
   for (const player of activePlayers) {
+    const endpoint = `https://api.mozambiquehe.re/bridge?player=${encodeURIComponent(player.name)}&platform=${player.platform}`;
+
     try {
       const profile = await fetchApexProfile(
         player.name,
@@ -48,9 +51,38 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
       // a zero snapshot would corrupt session deltas.
       if (metrics.kills === 0 && metrics.damage === 0) {
         logger.warn({ playerName: player.name }, "Skipping snapshot: kills and damage both 0 (incomplete API response)");
+        writePollLog({
+          playerName: player.name,
+          platform: player.platform,
+          endpoint,
+          status: "error",
+          httpStatus: 200,
+          errorMessage: "Incomplete stats (kills=0, damage=0) — snapshot not saved",
+          kills: null,
+          damage: null,
+          rankScore: null,
+          rankName: null,
+          rawPreview: null,
+          timestamp: new Date().toISOString(),
+        });
         results.push({ name: player.name, status: "error", error: "Incomplete stats (kills=0, damage=0) — snapshot not saved" });
         continue;
       }
+
+      writePollLog({
+        playerName: player.name,
+        platform: player.platform,
+        endpoint,
+        status: "success",
+        httpStatus: 200,
+        errorMessage: null,
+        kills: metrics.kills,
+        damage: metrics.damage,
+        rankScore: metrics.rankScore,
+        rankName: metrics.rankName,
+        rawPreview: JSON.stringify(profile.raw).slice(0, 400),
+        timestamp: new Date().toISOString(),
+      });
 
       await db.insert(statSnapshotsTable).values({
         playerId: player.id,
@@ -115,7 +147,23 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
       results.push({ name: player.name, status: "updated", error: null });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Unknown error";
+      const httpStatus = (err as { httpStatus?: number }).httpStatus ?? null;
+      const kind = (err as { kind?: string }).kind ?? "error";
       logger.error({ err, playerName: player.name }, "Poll failed for player");
+      writePollLog({
+        playerName: player.name,
+        platform: player.platform,
+        endpoint,
+        status: kind === "rate_limited" ? "rate_limited" : kind === "not_found" ? "not_found" : kind === "private" ? "private" : "error",
+        httpStatus,
+        errorMessage: msg,
+        kills: null,
+        damage: null,
+        rankScore: null,
+        rankName: null,
+        rawPreview: null,
+        timestamp: new Date().toISOString(),
+      });
       results.push({ name: player.name, status: "error", error: msg });
     }
   }

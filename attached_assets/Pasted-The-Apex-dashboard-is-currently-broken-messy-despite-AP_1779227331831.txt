@@ -1,0 +1,105 @@
+The Apex dashboard is currently broken/messy despite API integrations. Please refactor it into a stable, honest, production-style dashboard that does not assume unavailable Apex data.
+
+Critical fixes:
+
+1. Player Lookup
+
+* For Apex on Steam, do NOT assume the Steam username is the Apex username.
+* Add clear fields for:
+
+  * Display name
+  * EA/Origin account name
+  * Platform: PC / X1 / PS4 / SWITCH
+* Use the EA/Origin account name for Apex API lookups when platform is PC.
+* Add a validation button that shows the raw API result status before saving a player.
+
+2. Data Reliability
+
+* Do not show fake match history, fake session history, or fake start/stop times.
+* If the API does not return match history, show:
+  “Match history is unavailable from this API/account. Tracking will begin from snapshots going forward.”
+* Only display fields that actually come back from the API.
+* If a field is missing, show “N/A” instead of zero.
+
+3. Snapshot-Based Tracking
+
+* Store stat snapshots over time.
+* Use snapshots to calculate trends:
+
+  * RP change
+  * kills gained
+  * damage gained
+  * level change
+  * rank movement
+  * time between snapshots
+* Do not pretend these are exact matches unless match data is actually returned.
+
+4. API Debug Panel
+   Create a hidden/admin debug panel that shows:
+
+* API endpoint being called
+* player name
+* platform
+* response status
+* error message
+* last successful refresh time
+* raw JSON preview
+  This will make troubleshooting easy.
+
+5. Rate Limit Handling
+
+* Add request throttling.
+* Do not refresh all players repeatedly on page load.
+* Add a manual “Refresh Stats” button.
+* Cache API responses.
+* Show user-friendly messages for 429/rate-limit errors.
+
+6. Dashboard Cleanup
+   Redesign the dashboard around reliable available data:
+
+* Current rank
+* RP
+* account level
+* active selected legend if available
+* kills if available
+* damage if available
+* recent snapshot trend
+* weekly RP movement
+* weekly kills gained
+* player comparison cards
+* last updated timestamp
+
+7. Remove Broken Features
+   Temporarily remove or hide:
+
+* exact match history
+* exact session summaries
+* precise start/stop tracking
+* live status
+  unless the API response clearly supports them.
+
+8. UI Requirements
+   Make the dashboard clean and simple:
+
+* Main Squad Overview
+* Player Cards
+* Snapshot Trend Charts
+* Player Setup
+* API Debug
+* Data Limitations note
+
+9. Error Handling
+   Add clear messages for:
+
+* invalid API key
+* player not found
+* EA profile private
+* wrong platform selected
+* API rate limit
+* missing tracker fields
+* match history unavailable
+
+10. Most Important
+    Make the app trustworthy. It should never show made-up Apex stats. If data is unavailable, explain why and show the user what to fix.
+
+Use the Apex Legends Status / Mozambique API correctly and gracefully handle incomplete responses.

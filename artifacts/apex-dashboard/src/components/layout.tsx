@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
-import { Activity, Users, Trophy, History, Settings, Menu, ClipboardList } from "lucide-react";
+import { Activity, Users, Trophy, History, Settings, Menu, ClipboardList, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -45,6 +45,7 @@ const navItems = [
   { name: "Session", href: "/session", icon: ClipboardList },
   { name: "Snapshots", href: "/snapshots", icon: History },
   { name: "Settings", href: "/settings", icon: Settings },
+  { name: "API Debug", href: "/debug", icon: Terminal },
 ];
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -107,7 +108,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">Live Tracking</span>
+            <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">Snapshot · 1h refresh</span>
           </div>
         </div>
       </aside>

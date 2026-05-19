@@ -12,6 +12,7 @@ import { Snapshots } from "@/pages/snapshots";
 import { Settings } from "@/pages/settings";
 import { SessionReport } from "@/pages/session-report";
 import { PlayerProfile } from "@/pages/player-profile";
+import { Debug } from "@/pages/debug";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -33,6 +34,7 @@ function Router() {
         <Route path="/players/:id" component={PlayerProfile} />
         <Route path="/snapshots" component={Snapshots} />
         <Route path="/settings" component={Settings} />
+        <Route path="/debug" component={Debug} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

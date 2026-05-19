@@ -5,6 +5,7 @@ import snapshotsRouter from "./snapshots";
 import dashboardRouter from "./dashboard";
 import pollRouter from "./poll";
 import schedulerRouter from "./scheduler";
+import debugRouter from "./debug";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(snapshotsRouter);
 router.use(dashboardRouter);
 router.use(pollRouter);
 router.use(schedulerRouter);
+router.use(debugRouter);
 
 export default router;

@@ -458,7 +458,7 @@ export function Dashboard() {
 
   async function handleRefresh() {
     setPolling(true);
-    pollStats.mutate({}, {
+    pollStats.mutate(undefined, {
       onSuccess: (result) => {
         const ok = result.results.filter((r) => r.status === "updated").length;
         const errors = result.results.filter((r) => r.status === "error").length;
@@ -538,9 +538,9 @@ export function Dashboard() {
             <div className="flex items-center gap-2.5 mb-3">
               <div className="w-1 h-4 rounded-full bg-red-500" />
               <span className="text-[10px] font-mono uppercase tracking-[0.4em] text-red-400/80">5SK · Apex Legends</span>
-              <div className="flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-full border border-emerald-500/30 bg-emerald-500/10">
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-wider">Live</span>
+              <div className="flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-full border border-slate-700/50 bg-slate-800/40">
+                <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                <span className="text-[10px] font-mono text-slate-400 uppercase tracking-wider">Snapshot · 1h</span>
               </div>
             </div>
 
@@ -772,15 +772,18 @@ export function Dashboard() {
               </div>
             )}
 
-            {/* Recent Activity Feed */}
+            {/* Snapshot Changes Feed */}
             <div className="rounded-xl border border-border bg-card p-4 flex flex-col">
-              <div className="flex items-center gap-2 mb-4">
+              <div className="flex items-center gap-2 mb-1">
                 <Activity size={14} className="text-red-500" />
-                <h3 className="text-sm font-semibold tracking-wide">Recent Activity</h3>
+                <h3 className="text-sm font-semibold tracking-wide">Snapshot Changes</h3>
               </div>
+              <p className="text-[10px] font-mono text-muted-foreground mb-3">
+                RP/kill differences between consecutive hourly snapshots — not individual matches.
+              </p>
               {recentActivity.length === 0 ? (
                 <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground font-mono">
-                  No activity yet
+                  No snapshot deltas yet — data accumulates over time.
                 </div>
               ) : (
                 <div className="space-y-2 flex-1 overflow-y-auto">
@@ -986,6 +989,18 @@ export function Dashboard() {
               </table>
             </div>
           </section>
+
+          {/* ── Data Limitations Note ──────────────────────────────────── */}
+          <div className="rounded-xl border border-border/40 bg-card/40 p-4 flex items-start gap-3">
+            <Minus size={13} className="text-muted-foreground/50 shrink-0 mt-0.5" />
+            <p className="text-[11px] font-mono text-muted-foreground leading-relaxed">
+              <strong className="text-slate-400">About this data:</strong> Kills and damage are all-time career totals from the mozambiquehe.re API — not per-session.
+              Session and window views show the <em>difference</em> between snapshots taken in that period.
+              Match history is unavailable from this API; tracking begins from the first snapshot taken after a player is added.
+              For PC players, the lookup uses the <strong className="text-slate-400">EA/Origin account name</strong>, which may differ from the Steam display name.
+              Use the <strong className="text-slate-400">API Debug</strong> panel to inspect raw responses and troubleshoot missing data.
+            </p>
+          </div>
 
         </>
       )}

@@ -34,12 +34,41 @@ export async function fetchApexProfile(
     throw new Error("Missing APEX_API_KEY — add it in Replit Secrets");
   }
   const url = `${API_BASE}/bridge?auth=${encodeURIComponent(key)}&player=${encodeURIComponent(playerName)}&platform=${platform}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  const data = (await res.json()) as Record<string, unknown>;
-  if (!res.ok || data?.Error || data?.error) {
-    throw new Error(
-      String(data?.Error ?? data?.error ?? `Apex API error ${res.status}`),
-    );
+  let res: Response;
+  let data: Record<string, unknown>;
+  try {
+    res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    const text = await res.text();
+    try {
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      throw Object.assign(new Error(`API returned non-JSON response: ${text.slice(0, 120)}`), { httpStatus: res.status, rawText: text });
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error && "httpStatus" in err) throw err;
+    throw Object.assign(new Error("Network error reaching Mozambique API"), { httpStatus: null });
+  }
+
+  if (res.status === 429) {
+    throw Object.assign(new Error("Rate limited by Mozambique API — try again in a few minutes"), { httpStatus: 429, kind: "rate_limited" });
+  }
+  if (res.status === 403 || res.status === 401) {
+    throw Object.assign(new Error("Invalid API key — check APEX_API_KEY in Secrets"), { httpStatus: res.status, kind: "auth" });
+  }
+
+  const errMsg = data?.Error ?? data?.error;
+  if (errMsg) {
+    const s = String(errMsg).toLowerCase();
+    if (s.includes("not found") || s.includes("no player found") || s.includes("player not found")) {
+      throw Object.assign(new Error(`Player "${playerName}" not found on ${platform} — check the EA/Origin account name`), { httpStatus: res.status, kind: "not_found" });
+    }
+    if (s.includes("private") || s.includes("hidden")) {
+      throw Object.assign(new Error(`Player "${playerName}" has a private EA profile — stats unavailable`), { httpStatus: res.status, kind: "private" });
+    }
+    throw Object.assign(new Error(String(errMsg)), { httpStatus: res.status, kind: "api_error" });
+  }
+  if (!res.ok) {
+    throw Object.assign(new Error(`Apex API error ${res.status}`), { httpStatus: res.status, kind: "http_error" });
   }
   const global = (data.global ?? {}) as Record<string, unknown>;
   const rank = (global.rank ?? {}) as Record<string, unknown>;

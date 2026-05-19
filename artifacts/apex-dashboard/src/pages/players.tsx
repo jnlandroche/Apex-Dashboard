@@ -93,12 +93,20 @@ export function Players() {
           <UserPlus size={16} className="text-primary" />
           Add Player
         </h2>
+
+        {/* EA/Origin name notice */}
+        <div className="mb-4 rounded-lg border border-yellow-900/30 bg-yellow-950/10 px-4 py-3 text-xs font-mono text-yellow-300/80 leading-relaxed">
+          <strong className="text-yellow-200">PC players:</strong> Enter the <strong className="text-yellow-200">EA/Origin account name</strong>, not the Steam display name — these are often different.
+          The API looks up stats by EA account, not Steam username.
+          If a player's EA profile is set to <strong className="text-yellow-200">private</strong>, stats will not be available.
+        </div>
+
         <form onSubmit={handleAdd} className="grid gap-3 md:grid-cols-[1fr_140px_1fr_auto]">
           <input
             data-testid="input-player-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Apex username"
+            placeholder="EA/Origin account name"
             className="rounded-lg bg-background border border-border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
           />
           <select
