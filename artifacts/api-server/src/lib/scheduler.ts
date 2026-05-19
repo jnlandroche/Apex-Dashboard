@@ -1,5 +1,5 @@
 import { db, playersTable, statSnapshotsTable } from "@workspace/db";
-import { eq, and, gte, lte } from "drizzle-orm";
+import { eq, and, gte, lte, desc } from "drizzle-orm";
 import { fetchApexProfile, extractMetrics } from "./apex.js";
 import { logger } from "./logger.js";
 import { writePollLog } from "./pollLog.js";
@@ -200,9 +200,44 @@ async function runScheduled() {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-export function startScheduler() {
+export async function startScheduler() {
   logger.info({ intervalHours: state.intervalHours }, "Auto-refresh scheduler started");
-  scheduleNext();
+
+  // On every startup, check how old the most recent snapshot is.
+  // - If stale (older than intervalHours) or absent: poll immediately so data
+  //   is fresh right away, regardless of how long the server was down.
+  // - If fresh: wait only the *remaining* time in the current window instead
+  //   of resetting the clock to a full hour (which caused large gaps before).
+  try {
+    const [latest] = await db
+      .select({ capturedAt: statSnapshotsTable.capturedAt })
+      .from(statSnapshotsTable)
+      .orderBy(desc(statSnapshotsTable.capturedAt))
+      .limit(1);
+
+    const intervalMs = state.intervalHours * 60 * 60 * 1000;
+    const ageMs = latest ? Date.now() - latest.capturedAt.getTime() : Infinity;
+
+    if (ageMs >= intervalMs) {
+      logger.info(
+        { ageMinutes: Math.round(ageMs / 60000) },
+        "Snapshots are stale on startup — running immediate poll",
+      );
+      // runScheduled polls all players then calls scheduleNext() itself.
+      runScheduled();
+    } else {
+      const remainingMs = intervalMs - ageMs;
+      logger.info(
+        { nextPollInMinutes: Math.round(remainingMs / 60000) },
+        "Snapshots are fresh — scheduling next poll for remaining window",
+      );
+      state.nextRunAt = new Date(Date.now() + remainingMs);
+      timer = setTimeout(runScheduled, remainingMs);
+    }
+  } catch (err) {
+    logger.error({ err }, "Could not read last snapshot on startup — falling back to normal schedule");
+    scheduleNext();
+  }
 }
 
 export function getSchedulerState(): SchedulerState {
