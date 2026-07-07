@@ -29,6 +29,7 @@ type Snapshot = {
   kills: number | null;
   damage: number | null;
   kd: number | null;
+  realtimeState?: string | null;
 };
 
 type PlayerReport = {
@@ -56,6 +57,12 @@ const QUICK_RANGES = [
   { label: "Last 48h", hours: 48 },
   { label: "Last 7d", hours: 24 * 7 },
 ];
+
+// A gap of this length with no stat movement (kills/damage/RP flat) across the whole
+// squad is treated as "between sessions." 40 minutes sits between typical lobby-queue
+// downtime (shouldn't count as a break) and an actual step-away (should). Tune this if
+// realtimeState (online/offline) proves reliable enough to replace the heuristic entirely.
+const SESSION_GAP_MS = 40 * 60 * 1000;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -119,6 +126,38 @@ export function SessionReport() {
     setActiveQuick(hours);
     setFromDate(new Date(Date.now() - hours * 60 * 60 * 1000));
     setToDate(new Date());
+  }
+
+  // Finds the most recent "session": walk all snapshots across the squad backward from
+  // now and stop at the first gap ≥ SESSION_GAP_MS with no activity, or the first snapshot
+  // whose realtimeState explicitly says "offline" (when the API provides it — treated as
+  // a stronger signal than the timing heuristic alone).
+  function detectLastSession() {
+    const allSnaps: Snapshot[] = [];
+    for (const snaps of byPlayer.values()) allSnaps.push(...snaps);
+    if (!allSnaps.length) return;
+
+    allSnaps.sort((a, b) => new Date(b.capturedAt).getTime() - new Date(a.capturedAt).getTime());
+
+    let sessionEnd = new Date(allSnaps[0].capturedAt);
+    let sessionStart = sessionEnd;
+
+    for (let i = 0; i < allSnaps.length - 1; i++) {
+      const current = new Date(allSnaps[i].capturedAt);
+      const prev = new Date(allSnaps[i + 1].capturedAt);
+      const gap = current.getTime() - prev.getTime();
+
+      const wentOffline =
+        allSnaps[i + 1].realtimeState?.toLowerCase() === "offline" &&
+        allSnaps[i].realtimeState?.toLowerCase() !== "offline";
+
+      if (gap >= SESSION_GAP_MS || wentOffline) break;
+      sessionStart = prev;
+    }
+
+    setActiveQuick(-1);
+    setFromDate(sessionStart);
+    setToDate(sessionEnd);
   }
 
   // Group snapshots by player (sorted oldest-first per player)
@@ -282,6 +321,13 @@ export function SessionReport() {
 
         {/* Quick ranges */}
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={detectLastSession}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-background border border-primary/50 text-primary hover:bg-primary/10"
+            title={`Detects the last session as a continuous block of activity with no gap ≥ ${SESSION_GAP_MS / 60000} min`}
+          >
+            Auto-detect last session
+          </button>
           {QUICK_RANGES.map((r) => (
             <button
               key={r.hours}

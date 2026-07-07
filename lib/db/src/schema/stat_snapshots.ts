@@ -17,6 +17,9 @@ export const statSnapshotsTable = pgTable(
     kills: integer("kills"),
     damage: integer("damage"),
     kd: real("kd"),
+    // Raw realtime.currentState from mozambiquehe.re ("online" | "offline" | "in lobby" | etc, when the API returns it).
+    // Used to derive real session boundaries instead of guessing from stat deltas alone.
+    realtimeState: text("realtime_state"),
   },
   (table) => [
     index("stat_snapshots_player_captured_at_idx").on(table.playerId, table.capturedAt),

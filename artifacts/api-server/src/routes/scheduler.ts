@@ -27,8 +27,10 @@ router.patch("/scheduler/config", (req, res) => {
   };
 
   if (intervalHours !== undefined) {
-    if (typeof intervalHours !== "number" || intervalHours < 0.5 || intervalHours > 168) {
-      res.status(400).json({ error: "intervalHours must be between 0.5 and 168" });
+    // Lowered floor from 0.5h to 0.1h (6 min) to support the new 15-min default and
+    // tighter adaptive polling during active sessions. Still capped at 168h (weekly).
+    if (typeof intervalHours !== "number" || intervalHours < 0.1 || intervalHours > 168) {
+      res.status(400).json({ error: "intervalHours must be between 0.1 and 168" });
       return;
     }
   }

@@ -16,6 +16,16 @@ const PLATFORM_MAP: Record<string, string> = {
   SWITCH: "origin",
 };
 
+// tracker.gg is far more rate-limit-sensitive than mozambiquehe.re, and K/D
+// doesn't move fast enough to justify hitting it on every poll cycle once
+// polling drops to 10-15 min. Cache per player+platform for 30 minutes.
+const CACHE_TTL_MS = 30 * 60 * 1000;
+const cache = new Map<string, { data: TrackerMetrics; expiresAt: number }>();
+
+function cacheKey(playerName: string, platform: ApexPlatform): string {
+  return `${platform}:${playerName.toLowerCase()}`;
+}
+
 function extractStatValue(stats: Record<string, unknown>, key: string): number {
   const entry = stats[key];
   if (!entry || typeof entry !== "object") return 0;
@@ -33,6 +43,13 @@ export async function fetchTrackerMetrics(
   const key = apiKey ?? process.env.TRACKERGG_API_KEY;
   if (!key) {
     return null;
+  }
+
+  const ck = cacheKey(playerName, platform);
+  const cached = cache.get(ck);
+  if (cached && cached.expiresAt > Date.now()) {
+    logger.debug({ playerName }, "tracker.gg: using cached metrics");
+    return cached.data;
   }
 
   const trnPlatform = PLATFORM_MAP[platform] ?? "origin";
@@ -81,7 +98,9 @@ export async function fetchTrackerMetrics(
 
     logger.debug({ playerName, kd, kills, deaths, damage }, "tracker.gg metrics fetched");
 
-    return { kd, kills, deaths, damage };
+    const result: TrackerMetrics = { kd, kills, deaths, damage };
+    cache.set(ck, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
+    return result;
   } catch (err) {
     logger.warn({ err, playerName }, "tracker.gg fetch failed");
     return null;

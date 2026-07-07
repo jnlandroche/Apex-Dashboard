@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getPollLog } from "../lib/pollLog.js";
+import { getPollLog } from "../lib/pollLogDb.js";
 import { getSchedulerState } from "../lib/scheduler.js";
 
 const router = Router();
@@ -7,7 +7,7 @@ const router = Router();
 // GET /debug — API debug panel data
 router.get("/debug", async (req, res) => {
   const schedulerState = getSchedulerState();
-  const pollLog = getPollLog();
+  const pollLog = await getPollLog(50);
 
   res.json({
     scheduler: {

@@ -37,6 +37,7 @@ router.get("/snapshots", async (req, res) => {
       kills: statSnapshotsTable.kills,
       damage: statSnapshotsTable.damage,
       kd: statSnapshotsTable.kd,
+      realtimeState: statSnapshotsTable.realtimeState,
     })
     .from(statSnapshotsTable)
     .innerJoin(playersTable, eq(statSnapshotsTable.playerId, playersTable.id))

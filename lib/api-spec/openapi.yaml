@@ -363,6 +363,9 @@ components:
           type: ["integer", "null"]
         kd:
           type: ["number", "null"]
+        realtimeState:
+          type: ["string", "null"]
+          description: Raw realtime.currentState from mozambiquehe.re (e.g. online/offline/in lobby), used for session-boundary detection. Not guaranteed present for every account.
 
     PlayerStats:
       type: object

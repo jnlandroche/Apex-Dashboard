@@ -20,6 +20,9 @@ export type ApexProfile = {
   global?: unknown;
   raw: unknown;
   history: ApexHistoryEntry[];
+  // Raw realtime.currentState from mozambiquehe.re, e.g. "online" | "offline" | "in lobby".
+  // Best-effort signal for session detection, not guaranteed reliable for every account.
+  realtimeState: string | null;
 };
 
 const API_BASE = "https://api.mozambiquehe.re";
@@ -72,6 +75,9 @@ export async function fetchApexProfile(
   }
   const global = (data.global ?? {}) as Record<string, unknown>;
   const rank = (global.rank ?? {}) as Record<string, unknown>;
+  const realtime = (data.realtime ?? {}) as Record<string, unknown>;
+  const realtimeState =
+    typeof realtime.currentState === "string" ? realtime.currentState : null;
 
   const rawHistory = Array.isArray(data.history) ? data.history : [];
   const history: ApexHistoryEntry[] = rawHistory
@@ -97,6 +103,7 @@ export async function fetchApexProfile(
     global,
     raw: data,
     history,
+    realtimeState,
   };
 }
 
@@ -172,5 +179,6 @@ export function extractMetrics(profile: ApexProfile) {
     rankName: profile.rankName ?? "Unknown",
     rankScore: Number(profile.rankScore ?? 0),
     avatar: profile.avatar ?? null,
+    realtimeState: profile.realtimeState,
   };
 }

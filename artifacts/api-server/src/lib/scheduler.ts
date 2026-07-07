@@ -3,7 +3,7 @@ import { eq, desc, gte } from "drizzle-orm";
 import { fetchApexProfile, extractMetrics } from "./apex.js";
 import { fetchTrackerMetrics } from "./tracker.js";
 import { logger } from "./logger.js";
-import { writePollLog } from "./pollLog.js";
+import { writePollLog, prunePollLog } from "./pollLogDb.js";
 
 export type PollResult = { name: string; status: "updated" | "error"; error: string | null };
 
@@ -15,7 +15,19 @@ export type SchedulerState = {
   lastResults: PollResult[];
 };
 
-const DEFAULT_INTERVAL_HOURS = 1;
+// A 1-hour default was too coarse: a typical 1-2 hour Apex session could start
+// and end entirely between two polls, blending or hiding sessions. 15 minutes
+// gives enough resolution to detect real session boundaries via realtimeState
+// and stat-delta activity, without hammering the upstream APIs.
+const DEFAULT_INTERVAL_HOURS = 0.25;
+
+// Small delay between sequential per-player fetches within one poll cycle so we
+// don't burst N requests back-to-back into a per-second rate limit as the squad grows.
+const PLAYER_FETCH_DELAY_MS = 350;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 const state: SchedulerState = {
   enabled: true,
@@ -37,8 +49,12 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
 
   const results: PollResult[] = [];
 
-  for (const player of activePlayers) {
+  for (let i = 0; i < activePlayers.length; i++) {
+    const player = activePlayers[i];
     const endpoint = `https://api.mozambiquehe.re/bridge?player=${encodeURIComponent(player.name)}&platform=${player.platform}`;
+
+    // Space out requests within the cycle to avoid bursting a per-second rate limit.
+    if (i > 0) await sleep(PLAYER_FETCH_DELAY_MS);
 
     try {
       const profile = await fetchApexProfile(
@@ -66,7 +82,7 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
 
       if (metrics.kills === 0 && metrics.damage === 0) {
         logger.warn({ playerName: player.name }, "Skipping snapshot: kills and damage both 0 (incomplete API response)");
-        writePollLog({
+        await writePollLog({
           playerName: player.name,
           platform: player.platform,
           endpoint,
@@ -84,7 +100,7 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
         continue;
       }
 
-      writePollLog({
+      await writePollLog({
         playerName: player.name,
         platform: player.platform,
         endpoint,
@@ -107,6 +123,7 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
         kills: metrics.kills,
         damage: metrics.damage,
         kd: metrics.kd,
+        realtimeState: metrics.realtimeState,
       });
 
       if (metrics.avatar && metrics.avatar !== player.avatar) {
@@ -122,7 +139,7 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
       const httpStatus = (err as { httpStatus?: number }).httpStatus ?? null;
       const kind = (err as { kind?: string }).kind ?? "error";
       logger.error({ err, playerName: player.name }, "Poll failed for player");
-      writePollLog({
+      await writePollLog({
         playerName: player.name,
         platform: player.platform,
         endpoint,
@@ -192,12 +209,28 @@ async function persistMvpRecord() {
     const rpGained = Math.max(0, (last.rankScore ?? 0) - (first.rankScore ?? 0));
     const killsGained = Math.max(0, (last.kills ?? 0) - (first.kills ?? 0));
     const damageGained = Math.max(0, (last.damage ?? 0) - (first.damage ?? 0));
-    const score = rpGained * 1 + damageGained * 0.01 + killsGained * 10;
 
-    candidates.push({ name: player.name, rpGained, killsGained, damageGained, score });
+    candidates.push({ name: player.name, rpGained, killsGained, damageGained, score: 0 });
   }
 
   if (!candidates.length) return;
+
+  // Normalize each metric against the squad's own range this period (min-max scaling)
+  // instead of fixed arbitrary weights (previously: rp*1 + damage*0.01 + kills*10, which
+  // silently let one kill outweigh 1,000 damage with no stated rationale). This way no
+  // single stat dominates just because of its raw magnitude, and the winner reflects
+  // genuinely well-rounded performance across RP, kills, and damage.
+  function normalize(values: number[]): number[] {
+    const max = Math.max(...values);
+    if (max <= 0) return values.map(() => 0);
+    return values.map((v) => v / max);
+  }
+  const rpNorm = normalize(candidates.map((c) => c.rpGained));
+  const killsNorm = normalize(candidates.map((c) => c.killsGained));
+  const damageNorm = normalize(candidates.map((c) => c.damageGained));
+  candidates.forEach((c, i) => {
+    c.score = (rpNorm[i] + killsNorm[i] + damageNorm[i]) / 3;
+  });
 
   const allZero = candidates.every((c) => c.score === 0);
   if (allZero) return;
@@ -231,6 +264,9 @@ function scheduleNext() {
   timer = setTimeout(runScheduled, ms);
 }
 
+let lastPruneAt = 0;
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 async function runScheduled() {
   logger.info({ intervalHours: state.intervalHours }, "Scheduled stat poll starting");
   state.lastRunAt = new Date();
@@ -242,6 +278,13 @@ async function runScheduled() {
   } catch (err) {
     logger.error({ err }, "Scheduled stat poll crashed");
   }
+
+  // Prune poll_log rows older than 14 days once a day (non-fatal, non-blocking on failure).
+  if (Date.now() - lastPruneAt > PRUNE_INTERVAL_MS) {
+    lastPruneAt = Date.now();
+    prunePollLog(14).catch((err) => logger.warn({ err }, "Poll log prune failed"));
+  }
+
   scheduleNext();
 }
 
