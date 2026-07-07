@@ -159,7 +159,7 @@ export function Leaderboard() {
                       <td className="p-4 font-mono text-muted-foreground">{fmt(s.level)}</td>
                       <td className="p-4 font-mono">{fmt(s.kills)}</td>
                       <td className="p-4 font-mono">{fmtK(s.damage)}</td>
-                      <td className="p-4 font-mono text-emerald-400">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
+                      <td className="p-4 font-mono text-emerald-400">{s.kd != null && s.kd > 0 ? s.kd.toFixed(2) : "—"}</td>
                     </tr>
                   );
                 })}

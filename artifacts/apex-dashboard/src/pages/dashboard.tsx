@@ -1103,20 +1103,28 @@ export function Dashboard() {
                   <h3 className="text-sm font-semibold tracking-wide">K/D Ratio</h3>
                   <span className="text-[10px] text-muted-foreground font-mono ml-auto">lifetime</span>
                 </div>
-                <div className="h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={squad.map((p, i) => ({ name: p.name, KD: p.kd ?? 0, color: PLAYER_COLORS[i % PLAYER_COLORS.length] }))} layout="vertical" margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
-                      <XAxis type="number" stroke="#374151" tick={{ fontSize: 10, fill: "#6b7280" }} />
-                      <YAxis type="category" dataKey="name" stroke="#374151" tick={{ fontSize: 11, fill: "#9ca3af" }} width={80} />
-                      <Tooltip {...TOOLTIP_STYLE} formatter={(v: unknown) => [(v as number) > 0 ? (v as number).toFixed(2) : "—", "K/D"]} />
-                      <ReferenceLine x={1} stroke="rgba(220,38,38,0.4)" strokeDasharray="4 4" label={{ value: "1.0", fill: "#6b7280", fontSize: 9 }} />
-                      <Bar dataKey="KD" radius={[0, 4, 4, 0]} maxBarSize={28}>
-                        {squad.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />)}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                {squad.every((p) => !p.kd || p.kd <= 0) ? (
+                  <div className="h-52 flex flex-col items-center justify-center gap-2 text-center">
+                    <Target size={22} className="text-muted-foreground opacity-30" />
+                    <div className="text-sm font-mono text-muted-foreground">K/D unavailable</div>
+                    <div className="text-[10px] text-muted-foreground/50">Pending tracker.gg API key approval</div>
+                  </div>
+                ) : (
+                  <div className="h-52">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={squad.map((p, i) => ({ name: p.name, KD: p.kd ?? 0, color: PLAYER_COLORS[i % PLAYER_COLORS.length] }))} layout="vertical" margin={{ top: 8, right: 24, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
+                        <XAxis type="number" stroke="#374151" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                        <YAxis type="category" dataKey="name" stroke="#374151" tick={{ fontSize: 11, fill: "#9ca3af" }} width={80} />
+                        <Tooltip {...TOOLTIP_STYLE} formatter={(v: unknown) => [(v as number) > 0 ? (v as number).toFixed(2) : "—", "K/D"]} />
+                        <ReferenceLine x={1} stroke="rgba(220,38,38,0.4)" strokeDasharray="4 4" label={{ value: "1.0", fill: "#6b7280", fontSize: 9 }} />
+                        <Bar dataKey="KD" radius={[0, 4, 4, 0]} maxBarSize={28}>
+                          {squad.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />)}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
               </div>
             </section>
           )}

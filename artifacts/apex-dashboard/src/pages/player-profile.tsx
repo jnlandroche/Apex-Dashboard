@@ -117,10 +117,10 @@ function StatCard({
         {label}
       </div>
       <div className="text-2xl font-black tracking-tight" style={{ color }}>{value}</div>
-      {d != null && (
+      {d != null && d !== 0 && (
         <div className={`flex items-center gap-1 text-xs font-mono font-medium ${d >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
           {d >= 0 ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-          {d >= 0 ? "+" : ""}{d.toLocaleString()} total gain
+          {d >= 0 ? "+" : ""}{d.toLocaleString()} since first snapshot
         </div>
       )}
     </div>
@@ -267,7 +267,7 @@ export function PlayerProfile() {
             <StatCard icon={<Trophy size={14} />} label="Rank Points" value={fmt(latestSnap.rankScore)} delta={rpDelta} color="#dc2626" />
             <StatCard icon={<Crosshair size={14} />} label="Kills (Career)" value={fmt(latestSnap.kills)} delta={killsDelta} color="#f43f5e" />
             <StatCard icon={<Zap size={14} />} label="Damage (Career)" value={fmtK(latestSnap.damage)} delta={damageDelta} color="#8b5cf6" />
-            <StatCard icon={<Target size={14} />} label="K/D Ratio" value={latestSnap.kd != null ? latestSnap.kd.toFixed(2) : "—"} color="#10b981" />
+            <StatCard icon={<Target size={14} />} label="K/D Ratio" value={latestSnap.kd != null && latestSnap.kd > 0 ? latestSnap.kd.toFixed(2) : "—"} color="#10b981" />
           </div>
 
           {/* RP chart */}
@@ -294,11 +294,25 @@ export function PlayerProfile() {
           )}
 
           {/* Mini charts */}
-          <div className="grid gap-4 lg:grid-cols-3">
-            <MiniChart data={chartData} dataKey="Kills" color="#f43f5e" title="Kills Over Time" icon={<Crosshair size={13} />} />
-            <MiniChart data={chartData} dataKey="Damage" color="#8b5cf6" title="Damage Over Time" icon={<Zap size={13} />} formatter={(v) => `${(v / 1000).toFixed(0)}k`} />
-            <MiniChart data={chartData} dataKey="KD" color="#10b981" title="K/D Over Time" icon={<Target size={13} />} formatter={(v) => v.toFixed(2)} />
-          </div>
+          {(() => {
+            const hasKdData = chartData.some((d) => (d.KD as number) > 0);
+            return (
+              <div className="grid gap-4 lg:grid-cols-3">
+                <MiniChart data={chartData} dataKey="Kills" color="#f43f5e" title="Kills Over Time" icon={<Crosshair size={13} />} />
+                <MiniChart data={chartData} dataKey="Damage" color="#8b5cf6" title="Damage Over Time" icon={<Zap size={13} />} formatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                {hasKdData
+                  ? <MiniChart data={chartData} dataKey="KD" color="#10b981" title="K/D Over Time" icon={<Target size={13} />} formatter={(v) => v.toFixed(2)} />
+                  : (
+                    <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center justify-center gap-2 text-center">
+                      <Target size={18} className="text-muted-foreground opacity-40" />
+                      <div className="text-xs font-mono text-muted-foreground">K/D unavailable</div>
+                      <div className="text-[10px] text-muted-foreground/60">Pending tracker.gg API approval</div>
+                    </div>
+                  )
+                }
+              </div>
+            );
+          })()}
 
           {/* Snapshot history */}
           <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -328,7 +342,7 @@ export function PlayerProfile() {
                       <td className="p-4 font-mono text-muted-foreground">{fmt(s.level)}</td>
                       <td className="p-4 font-mono">{fmt(s.kills)}</td>
                       <td className="p-4 font-mono">{fmtK(s.damage)}</td>
-                      <td className="p-4 font-mono text-emerald-400">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
+                      <td className="p-4 font-mono text-emerald-400">{s.kd != null && s.kd > 0 ? s.kd.toFixed(2) : "—"}</td>
                     </tr>
                   ))}
                 </tbody>
