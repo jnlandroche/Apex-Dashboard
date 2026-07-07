@@ -12,4 +12,9 @@ export type GetSnapshotsParams = {
    * @nullable
    */
   playerId?: number | null;
+  /**
+   * ISO timestamp — return only snapshots captured at or after this time
+   * @nullable
+   */
+  since?: string | null;
 };

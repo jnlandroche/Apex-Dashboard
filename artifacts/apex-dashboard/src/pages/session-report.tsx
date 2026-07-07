@@ -168,9 +168,34 @@ export function SessionReport() {
     return results.sort((a, b) => b.rpDelta - a.rpDelta);
   }, [byPlayer, fromDate, toDate, avatarByName]);
 
-  const sessionWinner = reports.find((r) => r.rpDelta > 0) ?? reports[0];
+  // Winner only exists when at least one player has a positive RP delta
+  const sessionWinner = reports.find((r) => r.rpDelta > 0) ?? null;
   const hasData = reports.length > 0;
   const sameSnapshot = reports.some((r) => r.from.id === r.to.id);
+
+  // Compute actual session duration from real snapshot timestamps
+  const sessionDurationLabel = useMemo(() => {
+    if (reports.length === 0) return null;
+    const starts = reports.map((r) => new Date(r.from.capturedAt).getTime());
+    const ends = reports.map((r) => new Date(r.to.capturedAt).getTime());
+    const minStart = Math.min(...starts);
+    const maxEnd = Math.max(...ends);
+    const diffMs = maxEnd - minStart;
+    if (diffMs <= 0) return null;
+    const h = Math.floor(diffMs / 3600000);
+    const m = Math.floor((diffMs % 3600000) / 60000);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  }, [reports]);
+
+  // Track which players had closestBefore fallback (window expansion)
+  const expandedPlayers = useMemo(() => {
+    const expanded = new Set<number>();
+    for (const [playerId, snaps] of byPlayer) {
+      const fromSnap = closestBefore(snaps, fromDate);
+      if (!fromSnap) expanded.add(playerId);
+    }
+    return expanded;
+  }, [byPlayer, fromDate]);
 
   const [copied, setCopied] = useState(false);
 
@@ -223,6 +248,9 @@ export function SessionReport() {
           <h1 className="text-3xl font-bold tracking-tight">Session Report</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Compare squad stats between any two points in time.
+            {sessionDurationLabel && (
+              <> · <span className="text-foreground font-medium">{sessionDurationLabel}</span> of snapshots</>
+            )}
           </p>
         </div>
         {hasData && (
@@ -326,7 +354,18 @@ export function SessionReport() {
         </div>
       )}
 
-      {/* Session winner */}
+      {/* Window expansion warning */}
+      {!isLoading && hasData && expandedPlayers.size > 0 && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm text-amber-400 flex gap-2 items-start">
+          <ChevronDown size={15} className="shrink-0 mt-0.5" />
+          <span>
+            No snapshots found exactly at the start of your window for some players — using the nearest earlier snapshot as the baseline.
+            The actual window may be slightly wider than selected.
+          </span>
+        </div>
+      )}
+
+      {/* Session winner — only shown when at least one player gained RP */}
       {!isLoading && hasData && sessionWinner && reports.length > 1 && (
         <div
           className="rounded-2xl border bg-gradient-to-br from-slate-900 to-slate-800 p-6 relative overflow-hidden"
@@ -377,7 +416,7 @@ export function SessionReport() {
       {!isLoading && hasData && (
         <div className="space-y-4">
           {reports.map((r) => (
-            <PlayerCard key={r.playerId} report={r} />
+            <PlayerCard key={r.playerId} report={r} expanded={expandedPlayers.has(r.playerId)} />
           ))}
         </div>
       )}
@@ -415,19 +454,26 @@ function PlayerAvatar({ name, avatar, color, size = 36 }: { name: string; avatar
 
 // ─── Player report card ───────────────────────────────────────────────────────
 
-function PlayerCard({ report: r }: { report: PlayerReport }) {
+function PlayerCard({ report: r, expanded }: { report: PlayerReport; expanded?: boolean }) {
   const color = PLAYER_COLORS[r.colorIdx % PLAYER_COLORS.length];
   const sameSnap = r.from.id === r.to.id;
+  const formatTs = (iso: string) =>
+    new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZoneName: "short" });
 
   return (
     <div className="rounded-2xl border border-border bg-card overflow-hidden">
       {/* Header */}
-      <div className="flex items-center gap-3 p-4 border-b border-border">
+      <div className="flex items-center gap-3 p-4 border-b border-border flex-wrap">
         <div className="w-1 h-6 rounded-full shrink-0" style={{ background: color }} />
         <PlayerAvatar name={r.name} avatar={r.avatar} color={color} size={36} />
         <div className="font-bold text-lg">{r.name}</div>
-        <div className="ml-auto text-xs text-muted-foreground">
-          {new Date(r.from.capturedAt).toLocaleString()} → {new Date(r.to.capturedAt).toLocaleString()}
+        {expanded && (
+          <span className="text-[10px] font-mono text-amber-400 border border-amber-800/50 bg-amber-950/20 px-1.5 py-0.5 rounded">
+            window expanded
+          </span>
+        )}
+        <div className="ml-auto text-xs text-muted-foreground font-mono">
+          {formatTs(r.from.capturedAt)} → {formatTs(r.to.capturedAt)}
         </div>
       </div>
 

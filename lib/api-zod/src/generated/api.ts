@@ -8,7 +8,6 @@
 import * as zod from "zod";
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({
@@ -70,11 +69,17 @@ export const TogglePlayerResponse = zod.object({
 /**
  * @summary Get recent stat snapshots
  */
-export const getSnapshotsQueryLimitDefault = 250;
+export const getSnapshotsQueryLimitDefault = 500;
 
 export const GetSnapshotsQueryParams = zod.object({
   limit: zod.coerce.number().default(getSnapshotsQueryLimitDefault),
   playerId: zod.coerce.number().nullish(),
+  since: zod.coerce
+    .string()
+    .nullish()
+    .describe(
+      "ISO timestamp — return only snapshots captured at or after this time",
+    ),
 });
 
 export const GetSnapshotsResponseItem = zod.object({
@@ -92,7 +97,7 @@ export const GetSnapshotsResponseItem = zod.object({
 export const GetSnapshotsResponse = zod.array(GetSnapshotsResponseItem);
 
 /**
- * @summary Get latest stats for all active players (dashboard view)
+ * @summary Get latest stats for all active players
  */
 export const GetDashboardSummaryResponse = zod.object({
   playerCount: zod.number(),
@@ -152,6 +157,43 @@ export const GetTrendsResponseItem = zod.object({
   ),
 });
 export const GetTrendsResponse = zod.array(GetTrendsResponseItem);
+
+/**
+ * @summary Get historical MVP records (most recent first)
+ */
+export const getMvpHistoryQueryLimitDefault = 30;
+
+export const GetMvpHistoryQueryParams = zod.object({
+  limit: zod.coerce.number().default(getMvpHistoryQueryLimitDefault),
+});
+
+export const GetMvpHistoryResponseItem = zod.object({
+  id: zod.number(),
+  periodLabel: zod.string(),
+  periodStart: zod.string(),
+  periodEnd: zod.string(),
+  playerName: zod.string(),
+  rpGained: zod.number(),
+  killsGained: zod.number(),
+  damageGained: zod.number(),
+  score: zod.number(),
+  computedAt: zod.string(),
+});
+export const GetMvpHistoryResponse = zod.array(GetMvpHistoryResponseItem);
+
+/**
+ * @summary Get current Apex map rotation (proxied from mozambiquehe.re)
+ */
+export const GetMapRotationResponse = zod.object({
+  battle_royale: zod.record(zod.string(), zod.unknown()).optional(),
+  ranked: zod.record(zod.string(), zod.unknown()).optional(),
+  arenas: zod.record(zod.string(), zod.unknown()).optional(),
+});
+
+/**
+ * @summary Get EA/Apex server status (proxied from mozambiquehe.re)
+ */
+export const GetServerStatusResponse = zod.record(zod.string(), zod.unknown());
 
 /**
  * @summary Refresh stats for all active players from Apex API

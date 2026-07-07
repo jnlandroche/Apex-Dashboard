@@ -1,0 +1,3 @@
+- [Apex API quirks](apex-api-quirks.md) — mozambiquehe.re endpoint details: /maprotation (not /mapassets), /servers for status. K/D often missing; scan full `total` bag or compute from kills/deaths.
+- [tracker.gg supplement](tracker-gg-supplement.md) — TRACKERGG_API_KEY optional env; supplements K/D when mozambiquehe.re returns 0. Free tier is PC=origin, X1=xbl, PS4=psn.
+- [Drizzle index syntax](drizzle-index.md) — v0.45+ uses array form: `(table) => [index("name").on(col1, col2)]` in the third pgTable argument.

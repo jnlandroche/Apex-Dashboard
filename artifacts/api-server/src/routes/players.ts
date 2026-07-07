@@ -3,13 +3,14 @@ import { db, playersTable, statSnapshotsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { fetchApexProfile, extractMetrics } from "../lib/apex.js";
 import { AddPlayerBody, DeletePlayerParams, TogglePlayerParams } from "@workspace/api-zod";
+import { requireApiKey } from "../middleware/auth.js";
 
 const router = Router();
 
-// GET /players
+// GET /players — read-only, no auth required
 router.get("/players", async (req, res) => {
   const players = await db.select().from(playersTable).orderBy(playersTable.createdAt);
-  res.json(players.map(p => ({
+  res.json(players.map((p) => ({
     id: p.id,
     name: p.name,
     platform: p.platform,
@@ -20,8 +21,8 @@ router.get("/players", async (req, res) => {
   })));
 });
 
-// POST /players
-router.post("/players", async (req, res) => {
+// POST /players — mutating, requires API key if configured
+router.post("/players", requireApiKey, async (req, res) => {
   const parsed = AddPlayerBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid request body" });
@@ -33,7 +34,6 @@ router.post("/players", async (req, res) => {
     const profile = await fetchApexProfile(name, platform as "PC" | "X1" | "PS4" | "SWITCH", apiKey ?? undefined);
     const metrics = extractMetrics(profile);
 
-    // Upsert player
     const existing = await db.select().from(playersTable)
       .where(eq(playersTable.name, profile.name))
       .limit(1);
@@ -52,7 +52,6 @@ router.post("/players", async (req, res) => {
       player = created;
     }
 
-    // Insert initial snapshot
     await db.insert(statSnapshotsTable).values({
       playerId: player.id,
       rankName: metrics.rankName,
@@ -79,8 +78,8 @@ router.post("/players", async (req, res) => {
   }
 });
 
-// DELETE /players/:id
-router.delete("/players/:id", async (req, res) => {
+// DELETE /players/:id — mutating
+router.delete("/players/:id", requireApiKey, async (req, res) => {
   const parsed = DeletePlayerParams.safeParse({ id: Number(req.params.id) });
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid player id" });
@@ -95,8 +94,8 @@ router.delete("/players/:id", async (req, res) => {
   res.json({ ok: true });
 });
 
-// PATCH /players/:id/toggle
-router.patch("/players/:id/toggle", async (req, res) => {
+// PATCH /players/:id/toggle — mutating
+router.patch("/players/:id/toggle", requireApiKey, async (req, res) => {
   const parsed = TogglePlayerParams.safeParse({ id: Number(req.params.id) });
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid player id" });

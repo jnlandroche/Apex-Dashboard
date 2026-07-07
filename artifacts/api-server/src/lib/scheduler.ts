@@ -1,6 +1,7 @@
-import { db, playersTable, statSnapshotsTable } from "@workspace/db";
-import { eq, and, gte, lte, desc } from "drizzle-orm";
+import { db, playersTable, statSnapshotsTable, mvpRecordsTable } from "@workspace/db";
+import { eq, desc, gte } from "drizzle-orm";
 import { fetchApexProfile, extractMetrics } from "./apex.js";
+import { fetchTrackerMetrics } from "./tracker.js";
 import { logger } from "./logger.js";
 import { writePollLog } from "./pollLog.js";
 
@@ -46,9 +47,22 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
       );
       const metrics = extractMetrics(profile);
 
-      // Skip saving if kills AND damage are both 0 — the API returned incomplete
-      // data (e.g. privacy-hidden profile or a failed stat extraction). Storing
-      // a zero snapshot would corrupt session deltas.
+      // Supplement K/D from tracker.gg when mozambiquehe.re returns 0.
+      // tracker.gg is optional — gracefully skipped if key is absent.
+      if (metrics.kd === 0 && process.env.TRACKERGG_API_KEY) {
+        const tracker = await fetchTrackerMetrics(
+          player.name,
+          player.platform as "PC" | "X1" | "PS4" | "SWITCH",
+        );
+        if (tracker && tracker.kd > 0) {
+          logger.debug(
+            { playerName: player.name, trackerKd: tracker.kd },
+            "Using tracker.gg K/D as supplement",
+          );
+          metrics.kd = tracker.kd;
+        }
+      }
+
       if (metrics.kills === 0 && metrics.damage === 0) {
         logger.warn({ playerName: player.name }, "Skipping snapshot: kills and damage both 0 (incomplete API response)");
         writePollLog({
@@ -94,49 +108,6 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
         kd: metrics.kd,
       });
 
-      // Backfill API-returned history entries as additional snapshots.
-      // This gives the delta endpoint more accurate time-anchored data points
-      // rather than relying solely on our 4h scheduler timing.
-      if (profile.history.length > 0) {
-        let backfilled = 0;
-        for (const entry of profile.history) {
-          if (entry.kills === 0 && entry.damage === 0) continue;
-
-          const entryTime = new Date(entry.timestamp * 1000);
-          const windowStart = new Date(entryTime.getTime() - 10 * 60 * 1000);
-          const windowEnd = new Date(entryTime.getTime() + 10 * 60 * 1000);
-
-          const existing = await db
-            .select({ id: statSnapshotsTable.id })
-            .from(statSnapshotsTable)
-            .where(
-              and(
-                eq(statSnapshotsTable.playerId, player.id),
-                gte(statSnapshotsTable.capturedAt, windowStart),
-                lte(statSnapshotsTable.capturedAt, windowEnd),
-              ),
-            )
-            .limit(1);
-
-          if (existing.length === 0) {
-            await db.insert(statSnapshotsTable).values({
-              playerId: player.id,
-              capturedAt: entryTime,
-              rankName: metrics.rankName,
-              rankScore: entry.rankScore,
-              level: metrics.level,
-              kills: entry.kills,
-              damage: entry.damage,
-              kd: metrics.kd,
-            });
-            backfilled++;
-          }
-        }
-        if (backfilled > 0) {
-          logger.info({ playerName: player.name, backfilled }, "Backfilled API history snapshots");
-        }
-      }
-
       if (metrics.avatar && metrics.avatar !== player.avatar) {
         await db
           .update(playersTable)
@@ -168,7 +139,82 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
     }
   }
 
+  // Persist the 7-day MVP record after each successful poll cycle
+  const updated = results.filter((r) => r.status === "updated");
+  if (updated.length > 0) {
+    await persistMvpRecord().catch((err) =>
+      logger.warn({ err }, "MVP record persistence failed — non-fatal"),
+    );
+  }
+
   return results;
+}
+
+// ─── MVP persistence ──────────────────────────────────────────────────────────
+
+async function persistMvpRecord() {
+  const activePlayers = await db
+    .select()
+    .from(playersTable)
+    .where(eq(playersTable.active, true));
+
+  const now = new Date();
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+  const candidates: Array<{
+    name: string;
+    rpGained: number;
+    killsGained: number;
+    damageGained: number;
+    score: number;
+  }> = [];
+
+  for (const player of activePlayers) {
+    const snapshots = await db
+      .select({
+        rankScore: statSnapshotsTable.rankScore,
+        kills: statSnapshotsTable.kills,
+        damage: statSnapshotsTable.damage,
+        capturedAt: statSnapshotsTable.capturedAt,
+      })
+      .from(statSnapshotsTable)
+      .where(
+        eq(statSnapshotsTable.playerId, player.id),
+      )
+      .orderBy(statSnapshotsTable.capturedAt);
+
+    const weekPoints = snapshots.filter((s) => s.capturedAt >= weekAgo);
+    if (weekPoints.length < 2) continue;
+
+    const first = weekPoints[0];
+    const last = weekPoints[weekPoints.length - 1];
+    const rpGained = Math.max(0, (last.rankScore ?? 0) - (first.rankScore ?? 0));
+    const killsGained = Math.max(0, (last.kills ?? 0) - (first.kills ?? 0));
+    const damageGained = Math.max(0, (last.damage ?? 0) - (first.damage ?? 0));
+    const score = rpGained * 1 + damageGained * 0.01 + killsGained * 10;
+
+    candidates.push({ name: player.name, rpGained, killsGained, damageGained, score });
+  }
+
+  if (!candidates.length) return;
+
+  const allZero = candidates.every((c) => c.score === 0);
+  if (allZero) return;
+
+  const winner = candidates.sort((a, b) => b.score - a.score)[0];
+
+  await db.insert(mvpRecordsTable).values({
+    periodLabel: "7d",
+    periodStart: weekAgo,
+    periodEnd: now,
+    playerName: winner.name,
+    rpGained: winner.rpGained,
+    killsGained: winner.killsGained,
+    damageGained: winner.damageGained,
+    score: winner.score,
+  });
+
+  logger.info({ mvp: winner.name, score: winner.score }, "MVP record persisted");
 }
 
 // ─── Scheduler internals ──────────────────────────────────────────────────────
@@ -203,11 +249,6 @@ async function runScheduled() {
 export async function startScheduler() {
   logger.info({ intervalHours: state.intervalHours }, "Auto-refresh scheduler started");
 
-  // On every startup, check how old the most recent snapshot is.
-  // - If stale (older than intervalHours) or absent: poll immediately so data
-  //   is fresh right away, regardless of how long the server was down.
-  // - If fresh: wait only the *remaining* time in the current window instead
-  //   of resetting the clock to a full hour (which caused large gaps before).
   try {
     const [latest] = await db
       .select({ capturedAt: statSnapshotsTable.capturedAt })
@@ -223,7 +264,6 @@ export async function startScheduler() {
         { ageMinutes: Math.round(ageMs / 60000) },
         "Snapshots are stale on startup — running immediate poll",
       );
-      // runScheduled polls all players then calls scheduleNext() itself.
       runScheduled();
     } else {
       const remainingMs = intervalMs - ageMs;

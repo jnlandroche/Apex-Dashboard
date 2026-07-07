@@ -3,10 +3,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetDashboardSummary,
   useGetTrends,
+  useGetMvpHistory,
+  useGetMapRotation,
+  useGetServerStatus,
   getGetDashboardSummaryQueryKey,
   getGetLeaderboardQueryKey,
   getGetSnapshotsQueryKey,
   getGetTrendsQueryKey,
+  getGetMvpHistoryQueryKey,
   usePollStats,
 } from "@workspace/api-client-react";
 import {
@@ -44,6 +48,12 @@ import {
   Clock,
   ChevronRight,
   Minus,
+  Server,
+  Map,
+  History,
+  ChevronDown,
+  ChevronUp,
+  AlertCircle,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -155,26 +165,30 @@ type ActivityEntry = {
 
 // ─── Computation helpers ──────────────────────────────────────────────────────
 
-function computeWeeklyMvp(trends: TrendPlayer[]): MvpResult | null {
+function computeMvp(trends: TrendPlayer[], periodMs: number): MvpResult | null {
   const now = Date.now();
-  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  const fromTime = periodMs > 0 ? now - periodMs : 0;
   const candidates: MvpResult[] = [];
 
   trends.forEach((t, i) => {
-    const weekPoints = t.dataPoints.filter((dp) => new Date(dp.capturedAt).getTime() >= weekAgo);
-    if (weekPoints.length < 2) return;
+    const pts = periodMs > 0
+      ? t.dataPoints.filter((dp) => new Date(dp.capturedAt).getTime() >= fromTime)
+      : t.dataPoints;
+    if (pts.length < 2) return;
 
-    const first = weekPoints[0];
-    const last = weekPoints[weekPoints.length - 1];
+    const first = pts[0];
+    const last = pts[pts.length - 1];
     const rpGained = Math.max(0, last.rankScore - first.rankScore);
     const killsGained = Math.max(0, (last.kills ?? 0) - (first.kills ?? 0));
     const damageGained = Math.max(0, (last.damage ?? 0) - (first.damage ?? 0));
     const score = rpGained * 1 + damageGained * 0.01 + killsGained * 10;
 
-    candidates.push({ name: t.name, rpGained, killsGained, damageGained, score, snapshots: weekPoints.length, color: PLAYER_COLORS[i % PLAYER_COLORS.length] });
+    candidates.push({ name: t.name, rpGained, killsGained, damageGained, score, snapshots: pts.length, color: PLAYER_COLORS[i % PLAYER_COLORS.length] });
   });
 
   if (!candidates.length) return null;
+  const allZero = candidates.every((c) => c.score === 0);
+  if (allZero) return null;
   return candidates.sort((a, b) => b.score - a.score)[0];
 }
 
@@ -414,16 +428,21 @@ function PlayerCard({
 export function Dashboard() {
   const { data, isLoading } = useGetDashboardSummary();
   const { data: trends } = useGetTrends();
+  const { data: mvpHistory } = useGetMvpHistory({ limit: 10 });
+  const { data: mapRotation } = useGetMapRotation();
+  const { data: serverStatus } = useGetServerStatus();
   const pollStats = usePollStats();
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [polling, setPolling] = useState(false);
   const [periodKey, setPeriodKey] = useState<PeriodKey>("7d");
+  const [showMvpHistory, setShowMvpHistory] = useState(false);
 
   const squad = (data?.squadStats ?? []) as SquadPlayer[];
   const isSession = periodKey !== "total";
   const periodMs = QUICK_PERIODS.find((p) => p.key === periodKey)?.ms ?? 0;
+  const periodLabel = QUICK_PERIODS.find((p) => p.key === periodKey)?.label ?? "";
 
   const trendPlayers = (trends ?? []) as TrendPlayer[];
   const trendChartData = buildTrendChartData(trendPlayers);
@@ -434,12 +453,15 @@ export function Dashboard() {
     [isSession, trendPlayers, squad, periodMs],
   );
 
-  const mvp = computeWeeklyMvp(trendPlayers);
+  // Period-aware MVP: for non-total views show RP gained in selected window
+  const mvp = useMemo(() => computeMvp(trendPlayers, periodMs), [trendPlayers, periodMs]);
 
   const sessionLeader = isSession
     ? [...sessionStats].sort((a, b) => b.rpDelta - a.rpDelta)[0] ?? null
     : null;
-  const sessionLeaderHasData = sessionLeader && sessionLeader.rpDelta !== 0;
+  // Suppress session leader banner when all players have zero or negative RP delta
+  const sessionLeaderHasData =
+    sessionLeader && sessionStats.some((s) => s.rpDelta > 0);
 
   const recentActivity = useMemo(() => computeRecentActivity(trendPlayers), [trendPlayers]);
 
@@ -456,6 +478,34 @@ export function Dashboard() {
     return { stat: p.name.substring(0, 8), RP: normRP, Kills: normKills, Damage: normDmg, KD: normKD, Level: normLevel };
   });
 
+  // ── Map rotation helpers ────────────────────────────────────────────────────
+  // mozambiquehe.re /maprotation returns { current: {...}, next: {...} }
+  const mapRaw = mapRotation as Record<string, unknown> | undefined;
+  const currentMap = (mapRaw?.current ?? (mapRaw?.battle_royale as Record<string, unknown> | undefined)?.current) as Record<string, unknown> | undefined;
+  const nextMap = (mapRaw?.next ?? (mapRaw?.battle_royale as Record<string, unknown> | undefined)?.next) as Record<string, unknown> | undefined;
+
+  // ── Server status helpers ───────────────────────────────────────────────────
+  // mozambiquehe.re /servers returns top-level keys each with Status + ResponseTime
+  const serverRaw = serverStatus as Record<string, unknown> | undefined;
+  const getServerPing = (): { region: string; ping: number; status: string }[] => {
+    if (!serverRaw) return [];
+    const results: { region: string; ping: number; status: string }[] = [];
+    for (const [region, val] of Object.entries(serverRaw)) {
+      if (!val || typeof val !== "object") continue;
+      const v = val as Record<string, unknown>;
+      // Skip nested objects like "otherPlatforms" (no ResponseTime at top level)
+      const ping = Number(v.ResponseTime ?? v.responseTime ?? 0);
+      const status = String(v.Status ?? v.status ?? "UNKNOWN");
+      if (ping > 0) {
+        results.push({ region, ping, status });
+      }
+    }
+    return results.sort((a, b) => a.ping - b.ping).slice(0, 6);
+  };
+  const serverPings = getServerPing();
+  const allServersUp = serverPings.length > 0 && serverPings.every((s) => s.status === "UP");
+  const hasServerIssues = serverPings.some((s) => s.status !== "UP");
+
   async function handleRefresh() {
     setPolling(true);
     pollStats.mutate(undefined, {
@@ -466,6 +516,7 @@ export function Dashboard() {
         queryClient.invalidateQueries({ queryKey: getGetLeaderboardQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetSnapshotsQueryKey() });
         queryClient.invalidateQueries({ queryKey: getGetTrendsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetMvpHistoryQueryKey() });
         toast({ title: errors > 0 ? "Partial refresh" : "Stats refreshed", description: errors > 0 ? `${ok} updated, ${errors} failed` : `${ok} player${ok !== 1 ? "s" : ""} updated` });
         setPolling(false);
       },
@@ -606,7 +657,7 @@ export function Dashboard() {
           ))}
         </div>
         {isSession && (
-          <span className="text-[10px] text-muted-foreground font-mono italic">· showing RP deltas</span>
+          <span className="text-[10px] text-muted-foreground font-mono italic">· RP/kills delta vs career totals</span>
         )}
       </div>
 
@@ -701,34 +752,193 @@ export function Dashboard() {
               </div>
             )
           ) : mvp ? (
-            <section className="rounded-xl border bg-card p-5 relative overflow-hidden" style={{ borderColor: mvp.color + "44" }}>
-              <div className="absolute inset-0 opacity-[0.04]" style={{ background: `radial-gradient(ellipse at top left, ${mvp.color}, transparent 60%)` }} />
-              <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: mvp.color + "18", border: `1px solid ${mvp.color}40` }}>
-                    <Star size={20} style={{ color: mvp.color }} />
+            <section>
+              <div className="rounded-xl border bg-card p-5 relative overflow-hidden" style={{ borderColor: mvp.color + "44" }}>
+                <div className="absolute inset-0 opacity-[0.04]" style={{ background: `radial-gradient(ellipse at top left, ${mvp.color}, transparent 60%)` }} />
+                <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ background: mvp.color + "18", border: `1px solid ${mvp.color}40` }}>
+                      <Star size={20} style={{ color: mvp.color }} />
+                    </div>
+                    <div>
+                      <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-muted-foreground mb-0.5">
+                        {periodKey === "total" ? "All-Time Leader" : `${periodLabel} MVP`}
+                      </div>
+                      <div className="text-2xl font-black" style={{ color: mvp.color }}>{mvp.name}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">{mvp.snapshots} snapshots · {periodLabel}</div>
+                    </div>
                   </div>
-                  <div>
-                    <div className="text-[10px] font-mono uppercase tracking-[0.25em] text-muted-foreground mb-0.5">Weekly MVP</div>
-                    <div className="text-2xl font-black" style={{ color: mvp.color }}>{mvp.name}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{mvp.snapshots} snapshots · last 7 days</div>
+                  <div className="sm:ml-auto grid grid-cols-3 gap-4">
+                    {[
+                      { label: "RP Gained", value: mvp.rpGained > 0 ? `+${fmt(mvp.rpGained)}` : "—", color: "text-emerald-400" },
+                      { label: "Kills Δ", value: mvp.killsGained > 0 ? `+${fmt(mvp.killsGained)}` : "—", color: "text-rose-400" },
+                      { label: "Damage Δ", value: mvp.damageGained > 0 ? `+${fmtK(mvp.damageGained)}` : "—", color: "text-violet-400" },
+                    ].map((s) => (
+                      <div key={s.label} className="text-center">
+                        <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{s.label}</div>
+                        <div className={`text-lg font-black font-mono ${s.color}`}>{s.value}</div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                <div className="sm:ml-auto grid grid-cols-3 gap-4">
-                  {[
-                    { label: "RP Gained", value: `+${fmt(mvp.rpGained)}`, color: "text-emerald-400" },
-                    { label: "New Kills", value: mvp.killsGained > 0 ? `+${fmt(mvp.killsGained)}` : "—", color: "text-rose-400" },
-                    { label: "New Damage", value: mvp.damageGained > 0 ? `+${fmtK(mvp.damageGained)}` : "—", color: "text-violet-400" },
-                  ].map((s) => (
-                    <div key={s.label} className="text-center">
-                      <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">{s.label}</div>
-                      <div className={`text-lg font-black font-mono ${s.color}`}>{s.value}</div>
+              </div>
+
+              {/* MVP History toggle */}
+              {mvpHistory && mvpHistory.length > 0 && (
+                <div className="mt-2">
+                  <button
+                    onClick={() => setShowMvpHistory((v) => !v)}
+                    className="flex items-center gap-1.5 text-[10px] font-mono uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors px-1 py-1"
+                  >
+                    <History size={11} />
+                    MVP History
+                    {showMvpHistory ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
+                  </button>
+                  {showMvpHistory && (
+                    <div className="mt-2 rounded-xl border border-border bg-card overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground border-b border-border">
+                              <th className="text-left px-4 py-2">Recorded</th>
+                              <th className="text-left px-4 py-2">Window</th>
+                              <th className="text-left px-4 py-2">MVP</th>
+                              <th className="text-left px-4 py-2">RP</th>
+                              <th className="text-left px-4 py-2">Kills Δ</th>
+                              <th className="text-left px-4 py-2">Score</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mvpHistory.map((r) => {
+                              const pi = trendPlayers.findIndex((t) => t.name === r.playerName);
+                              const color = PLAYER_COLORS[pi >= 0 ? pi % PLAYER_COLORS.length : 0];
+                              return (
+                                <tr key={r.id} className="border-b border-border/40 hover:bg-white/[0.015] transition-colors">
+                                  <td className="px-4 py-2 font-mono text-muted-foreground">{timeAgo(r.computedAt)}</td>
+                                  <td className="px-4 py-2 font-mono text-muted-foreground">{r.periodLabel}</td>
+                                  <td className="px-4 py-2 font-bold" style={{ color }}>{r.playerName}</td>
+                                  <td className="px-4 py-2 font-mono text-emerald-400">+{fmt(r.rpGained)}</td>
+                                  <td className="px-4 py-2 font-mono text-rose-400">{r.killsGained > 0 ? `+${r.killsGained}` : "—"}</td>
+                                  <td className="px-4 py-2 font-mono text-muted-foreground">{r.score.toFixed(0)}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </section>
+          ) : (
+            <div className="rounded-xl border border-dashed border-border/50 bg-card/20 px-5 py-4 flex items-center gap-3 text-sm text-muted-foreground">
+              <Star size={14} className="text-muted-foreground/50 shrink-0" />
+              No MVP data for this period — not enough snapshots yet. Try a wider window.
+            </div>
+          )}
+
+          {/* ── Map Rotation + Server Status ──────────────────────────────── */}
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Map Rotation */}
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Map size={13} className="text-red-500" />
+                <h3 className="text-sm font-semibold tracking-wide">Map Rotation</h3>
+              </div>
+              {currentMap ? (
+                <div className="space-y-2">
+                  <div className="flex items-start gap-3">
+                    <div className="mt-0.5 w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                    <div>
+                      <div className="text-[10px] font-mono uppercase text-muted-foreground">Now Playing</div>
+                      <div className="font-bold text-sm text-white">{String(currentMap.map ?? currentMap.Map ?? "—")}</div>
+                      {currentMap.remainingSecs != null && (
+                        <div className="text-[10px] font-mono text-muted-foreground mt-0.5">
+                          {Math.ceil(Number(currentMap.remainingSecs) / 60)}m remaining
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {nextMap && (
+                    <div className="flex items-start gap-3 opacity-60">
+                      <div className="mt-0.5 w-2 h-2 rounded-full bg-slate-500 shrink-0" />
+                      <div>
+                        <div className="text-[10px] font-mono uppercase text-muted-foreground">Up Next</div>
+                        <div className="text-sm text-slate-300">{String(nextMap.map ?? nextMap.Map ?? "—")}</div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono py-2">
+                  <Map size={12} className="opacity-40" />
+                  Map data unavailable
+                </div>
+              )}
+            </div>
+
+            {/* Server Status */}
+            <div className="rounded-xl border border-border bg-card p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <Server size={13} className={hasServerIssues ? "text-rose-400" : allServersUp ? "text-emerald-400" : "text-red-500"} />
+                <h3 className="text-sm font-semibold tracking-wide">Server Status</h3>
+                {serverPings.length > 0 && (
+                  <span className={`ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-full border ${
+                    hasServerIssues
+                      ? "text-rose-400 border-rose-900/40 bg-rose-950/20"
+                      : "text-emerald-400 border-emerald-900/40 bg-emerald-950/20"
+                  }`}>
+                    {hasServerIssues ? "ISSUES" : "ONLINE"}
+                  </span>
+                )}
+              </div>
+              {serverPings.length > 0 ? (
+                <div className="space-y-1.5">
+                  {serverPings.map((s) => (
+                    <div key={s.region} className="flex items-center gap-2">
+                      <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.status === "UP" ? "bg-emerald-400" : "bg-rose-400"}`} />
+                      <span className="text-[10px] font-mono text-muted-foreground truncate flex-1">{s.region.replace(/_/g, " ")}</span>
+                      <span className="text-[10px] font-mono text-slate-400 shrink-0">{s.ping}ms</span>
                     </div>
                   ))}
                 </div>
+              ) : (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono py-2">
+                  <AlertCircle size={12} className="opacity-40" />
+                  Status unavailable
+                </div>
+              )}
+            </div>
+
+            {/* Quick squad RP summary */}
+            {!noPlayers && (
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Trophy size={13} className="text-red-500" />
+                  <h3 className="text-sm font-semibold tracking-wide">Squad RP</h3>
+                </div>
+                <div className="space-y-2">
+                  {squad.map((p, i) => {
+                    const color = PLAYER_COLORS[i % PLAYER_COLORS.length];
+                    const maxRp = Math.max(...squad.map((s) => s.rankScore ?? 0), 1);
+                    const pct = Math.round(((p.rankScore ?? 0) / maxRp) * 100);
+                    return (
+                      <div key={p.playerId}>
+                        <div className="flex justify-between items-center mb-0.5">
+                          <span className="text-xs font-bold" style={{ color }}>{p.name}</span>
+                          <span className="text-[10px] font-mono text-muted-foreground">{fmt(p.rankScore)} RP</span>
+                        </div>
+                        <div className="h-1.5 rounded-full bg-white/5 overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: color }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </section>
-          ) : null}
+            )}
+          </section>
 
           {/* ── RP Trend + Recent Activity ─────────────────────────────────── */}
           <section className="grid gap-4 xl:grid-cols-3">

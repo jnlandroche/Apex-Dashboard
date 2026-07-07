@@ -116,9 +116,6 @@ function totalVal(
   return 0;
 }
 
-// Returns the highest value across all candidate keys. Use when the API stores
-// the same logical stat under different field names per player and we want the
-// most comprehensive reading rather than a fixed priority order.
 function totalMax(
   total: Record<string, TotalEntry>,
   ...keys: string[]
@@ -134,44 +131,54 @@ function totalMax(
   return best;
 }
 
+/**
+ * Scan every key in the total bag for the highest plausible KD value.
+ * Some accounts store it under "kd", others under player-specific keys.
+ */
+function findBestKd(total: Record<string, TotalEntry>): number {
+  let best = 0;
+  for (const entry of Object.values(total)) {
+    if (!entry?.value) continue;
+    const n = Number(entry.value);
+    if (isNaN(n) || n <= 0 || n > 50) continue; // plausible KD range
+    if (n > best) best = n;
+  }
+  return best;
+}
+
 export function extractMetrics(profile: ApexProfile) {
   const g = (profile.global as Record<string, unknown> | undefined) ?? {};
   const raw = profile.raw as Record<string, unknown>;
 
-  // `total` is the flat aggregated stat bag — most reliable source
   const total = (raw.total ?? {}) as Record<string, TotalEntry>;
 
-  // kills: The Mozambique API stores the same stat under different field names
-  // per player. "career_kills" may be a frozen badge on some accounts while
-  // "specialEvent_kills" is the live counter, or vice-versa. Taking the MAX
-  // across all known kill fields always gives the most comprehensive reading,
-  // regardless of which one the API updates for a given player.
   const kills = totalMax(total, "career_kills", "specialEvent_kills", "kills");
-
-  // damage: same issue — for some players "damage" is a partial tracker (e.g.
-  // Daveskey reads 84 K from "damage" vs 1.4 M from "specialEvent_damage").
-  // Take the max so we never under-report career damage.
   const damage = totalMax(total, "damage", "specialEvent_damage");
-
-  // wins
   const wins = totalVal(total, "specialEvent_wins", "wins");
+  const deaths = totalMax(total, "deaths", "specialEvent_deaths");
 
-  // deaths — used to compute K/D when the API hides it
-  const deaths = totalVal(total, "deaths", "specialEvent_deaths");
-
-  // K/D: use the API value when valid (> 0), otherwise compute from
-  // kills ÷ deaths (both come from the same lifetime total bag).
+  // K/D: try the explicit kd field first, then a broad scan of the total bag
+  // (some accounts store it under a different key name), then compute from
+  // kills/deaths if both are available.
   const rawKdStr = (total["kd"] as TotalEntry | undefined)?.value;
   const rawKd = rawKdStr != null ? Number(rawKdStr) : 0;
+
   const computedKd =
     kills > 0 && deaths > 0
       ? Math.round((kills / deaths) * 100) / 100
       : 0;
+
+  const scannedKd = rawKd > 0 ? 0 : findBestKd(total);
+
   const kd: number =
-    rawKd > 0 ? Math.round(rawKd * 100) / 100 : computedKd;
+    rawKd > 0
+      ? Math.round(rawKd * 100) / 100
+      : scannedKd > 0
+        ? Math.round(scannedKd * 100) / 100
+        : computedKd;
 
   logger.debug(
-    { playerName: profile.name, kills, damage, kd, deaths, rawKd },
+    { playerName: profile.name, kills, damage, kd, deaths, rawKd, scannedKd, computedKd },
     "Extracted metrics from Apex API response",
   );
 
@@ -180,6 +187,7 @@ export function extractMetrics(profile: ApexProfile) {
     kills,
     damage,
     kd,
+    deaths,
     wins,
     rankName: profile.rankName ?? "Unknown",
     rankScore: Number(profile.rankScore ?? 0),

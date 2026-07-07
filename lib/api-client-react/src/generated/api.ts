@@ -20,8 +20,12 @@ import type {
   ApiError,
   DashboardSummary,
   DeleteResult,
+  GetMvpHistoryParams,
+  GetServerStatus200,
   GetSnapshotsParams,
   HealthStatus,
+  MapRotation,
+  MvpRecord,
   Player,
   PlayerInput,
   PlayerStats,
@@ -40,7 +44,6 @@ type Awaited<O> = O extends AwaitedInput<infer T> ? T : never;
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
 
 /**
- * Returns server health status
  * @summary Health check
  */
 export const getHealthCheckUrl = () => {
@@ -537,7 +540,7 @@ export function useGetSnapshots<
 }
 
 /**
- * @summary Get latest stats for all active players (dashboard view)
+ * @summary Get latest stats for all active players
  */
 export const getGetDashboardSummaryUrl = () => {
   return `/api/dashboard/summary`;
@@ -588,7 +591,7 @@ export type GetDashboardSummaryQueryResult = NonNullable<
 export type GetDashboardSummaryQueryError = ErrorType<unknown>;
 
 /**
- * @summary Get latest stats for all active players (dashboard view)
+ * @summary Get latest stats for all active players
  */
 
 export function useGetDashboardSummary<
@@ -745,6 +748,250 @@ export function useGetTrends<
   request?: SecondParameter<typeof customFetch>;
 }): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
   const queryOptions = getGetTrendsQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get historical MVP records (most recent first)
+ */
+export const getGetMvpHistoryUrl = (params?: GetMvpHistoryParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/dashboard/mvp/history?${stringifiedParams}`
+    : `/api/dashboard/mvp/history`;
+};
+
+export const getMvpHistory = async (
+  params?: GetMvpHistoryParams,
+  options?: RequestInit,
+): Promise<MvpRecord[]> => {
+  return customFetch<MvpRecord[]>(getGetMvpHistoryUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMvpHistoryQueryKey = (params?: GetMvpHistoryParams) => {
+  return [`/api/dashboard/mvp/history`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetMvpHistoryQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMvpHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetMvpHistoryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMvpHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMvpHistoryQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMvpHistory>>> = ({
+    signal,
+  }) => getMvpHistory(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMvpHistory>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMvpHistoryQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMvpHistory>>
+>;
+export type GetMvpHistoryQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Get historical MVP records (most recent first)
+ */
+
+export function useGetMvpHistory<
+  TData = Awaited<ReturnType<typeof getMvpHistory>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetMvpHistoryParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getMvpHistory>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMvpHistoryQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get current Apex map rotation (proxied from mozambiquehe.re)
+ */
+export const getGetMapRotationUrl = () => {
+  return `/api/dashboard/map`;
+};
+
+export const getMapRotation = async (
+  options?: RequestInit,
+): Promise<MapRotation> => {
+  return customFetch<MapRotation>(getGetMapRotationUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMapRotationQueryKey = () => {
+  return [`/api/dashboard/map`] as const;
+};
+
+export const getGetMapRotationQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMapRotation>>,
+  TError = ErrorType<ApiError>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMapRotation>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMapRotationQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMapRotation>>> = ({
+    signal,
+  }) => getMapRotation({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMapRotation>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMapRotationQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMapRotation>>
+>;
+export type GetMapRotationQueryError = ErrorType<ApiError>;
+
+/**
+ * @summary Get current Apex map rotation (proxied from mozambiquehe.re)
+ */
+
+export function useGetMapRotation<
+  TData = Awaited<ReturnType<typeof getMapRotation>>,
+  TError = ErrorType<ApiError>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMapRotation>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMapRotationQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Get EA/Apex server status (proxied from mozambiquehe.re)
+ */
+export const getGetServerStatusUrl = () => {
+  return `/api/dashboard/serverstatus`;
+};
+
+export const getServerStatus = async (
+  options?: RequestInit,
+): Promise<GetServerStatus200> => {
+  return customFetch<GetServerStatus200>(getGetServerStatusUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetServerStatusQueryKey = () => {
+  return [`/api/dashboard/serverstatus`] as const;
+};
+
+export const getGetServerStatusQueryOptions = <
+  TData = Awaited<ReturnType<typeof getServerStatus>>,
+  TError = ErrorType<ApiError>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getServerStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetServerStatusQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getServerStatus>>> = ({
+    signal,
+  }) => getServerStatus({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getServerStatus>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetServerStatusQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getServerStatus>>
+>;
+export type GetServerStatusQueryError = ErrorType<ApiError>;
+
+/**
+ * @summary Get EA/Apex server status (proxied from mozambiquehe.re)
+ */
+
+export function useGetServerStatus<
+  TData = Awaited<ReturnType<typeof getServerStatus>>,
+  TError = ErrorType<ApiError>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getServerStatus>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetServerStatusQueryOptions(options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

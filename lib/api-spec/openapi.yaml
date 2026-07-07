@@ -23,7 +23,6 @@ paths:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -136,11 +135,16 @@ paths:
           in: query
           schema:
             type: integer
-            default: 250
+            default: 500
         - name: playerId
           in: query
           schema:
             type: ["integer", "null"]
+        - name: since
+          in: query
+          description: ISO timestamp — return only snapshots captured at or after this time
+          schema:
+            type: ["string", "null"]
       responses:
         "200":
           description: List of snapshots
@@ -155,7 +159,7 @@ paths:
     get:
       operationId: getDashboardSummary
       tags: [dashboard]
-      summary: Get latest stats for all active players (dashboard view)
+      summary: Get latest stats for all active players
       responses:
         "200":
           description: Dashboard summary
@@ -193,6 +197,72 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/PlayerTrend"
+
+  /dashboard/mvp/history:
+    get:
+      operationId: getMvpHistory
+      tags: [dashboard]
+      summary: Get historical MVP records (most recent first)
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 30
+      responses:
+        "200":
+          description: MVP history records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MvpRecord"
+
+  /dashboard/map:
+    get:
+      operationId: getMapRotation
+      tags: [dashboard]
+      summary: Get current Apex map rotation (proxied from mozambiquehe.re)
+      responses:
+        "200":
+          description: Map rotation data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MapRotation"
+        "502":
+          description: Upstream API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: API key not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /dashboard/serverstatus:
+    get:
+      operationId: getServerStatus
+      tags: [dashboard]
+      summary: Get EA/Apex server status (proxied from mozambiquehe.re)
+      responses:
+        "200":
+          description: Server status data (pass-through from upstream)
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "502":
+          description: Upstream API error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 
   /poll:
     post:
@@ -367,6 +437,45 @@ components:
           type: ["integer", "null"]
         damage:
           type: ["integer", "null"]
+
+    MvpRecord:
+      type: object
+      required: [id, periodLabel, periodStart, periodEnd, playerName, rpGained, killsGained, damageGained, score, computedAt]
+      properties:
+        id:
+          type: integer
+        periodLabel:
+          type: string
+        periodStart:
+          type: string
+        periodEnd:
+          type: string
+        playerName:
+          type: string
+        rpGained:
+          type: integer
+        killsGained:
+          type: integer
+        damageGained:
+          type: integer
+        score:
+          type: number
+        computedAt:
+          type: string
+
+    MapRotation:
+      type: object
+      additionalProperties: true
+      properties:
+        battle_royale:
+          type: object
+          additionalProperties: true
+        ranked:
+          type: object
+          additionalProperties: true
+        arenas:
+          type: object
+          additionalProperties: true
 
     PollResult:
       type: object

@@ -117,6 +117,32 @@ export interface PlayerTrend {
   dataPoints: TrendPoint[];
 }
 
+export interface MvpRecord {
+  id: number;
+  periodLabel: string;
+  periodStart: string;
+  periodEnd: string;
+  playerName: string;
+  rpGained: number;
+  killsGained: number;
+  damageGained: number;
+  score: number;
+  computedAt: string;
+}
+
+export type MapRotationBattleRoyale = { [key: string]: unknown };
+
+export type MapRotationRanked = { [key: string]: unknown };
+
+export type MapRotationArenas = { [key: string]: unknown };
+
+export interface MapRotation {
+  battle_royale?: MapRotationBattleRoyale;
+  ranked?: MapRotationRanked;
+  arenas?: MapRotationArenas;
+  [key: string]: unknown;
+}
+
 export interface PollPlayerResult {
   name: string;
   status: string;
@@ -135,4 +161,15 @@ export type GetSnapshotsParams = {
    * @nullable
    */
   playerId?: number | null;
+  /**
+   * ISO timestamp — return only snapshots captured at or after this time
+   * @nullable
+   */
+  since?: string | null;
 };
+
+export type GetMvpHistoryParams = {
+  limit?: number;
+};
+
+export type GetServerStatus200 = { [key: string]: unknown };

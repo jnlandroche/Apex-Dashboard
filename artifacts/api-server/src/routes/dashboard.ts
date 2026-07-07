@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { db, statSnapshotsTable, playersTable } from "@workspace/db";
+import { db, statSnapshotsTable, playersTable, mvpRecordsTable } from "@workspace/db";
 import { eq, desc, gte, and } from "drizzle-orm";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 
@@ -57,15 +58,10 @@ router.get("/dashboard/summary", async (req, res) => {
   const byKills = [...squadStats].sort((a, b) => b.kills - a.kills);
   const topKills = byKills[0];
 
-  const sessionKills = squadStats.reduce((sum, p) => sum + p.kills, 0);
-  const sessionDamage = squadStats.reduce((sum, p) => sum + p.damage, 0);
-
   res.json({
     playerCount: squadStats.length,
     totalKills,
     totalDamage,
-    sessionKills,
-    sessionDamage,
     topRankedPlayer: topRanked?.name ?? null,
     topRankedRank: topRanked?.rankName ?? null,
     topKillsPlayer: topKills?.name ?? null,
@@ -80,9 +76,7 @@ router.get("/dashboard/leaderboard", async (req, res) => {
   res.json(sorted);
 });
 
-// Collapse a sorted list of snapshots into one data point per 4-hour bucket.
-// Keeps the last snapshot in each bucket so the chart plots the final RP value
-// reached in that window — this makes ranked swings more visible.
+// Collapse sorted snapshots into one data point per 4-hour bucket (last in bucket wins)
 const TREND_BUCKET_MS = 4 * 60 * 60 * 1000;
 
 function downsampleTo4h<T extends { capturedAt: Date }>(rows: T[]): T[] {
@@ -119,7 +113,7 @@ router.get("/dashboard/trends", async (req, res) => {
       return {
         playerId: player.id,
         name: player.name,
-        dataPoints: downsampled.map(s => ({
+        dataPoints: downsampled.map((s) => ({
           capturedAt: s.capturedAt.toISOString(),
           rankScore: s.rankScore ?? 0,
           kills: s.kills ?? 0,
@@ -163,14 +157,7 @@ router.get("/dashboard/deltas", async (req, res) => {
         .orderBy(statSnapshotsTable.capturedAt);
 
       if (snapshots.length < 2) {
-        return {
-          playerId: player.id,
-          name: player.name,
-          window,
-          killsDelta: 0,
-          damageDelta: 0,
-          kdDelta: 0,
-        };
+        return { playerId: player.id, name: player.name, window, killsDelta: 0, damageDelta: 0, kdDelta: 0 };
       }
 
       const oldest = snapshots[0];
@@ -188,6 +175,100 @@ router.get("/dashboard/deltas", async (req, res) => {
   );
 
   res.json(deltas);
+});
+
+// GET /dashboard/mvp/history?limit=30
+router.get("/dashboard/mvp/history", async (req, res) => {
+  const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 30));
+  const rows = await db
+    .select()
+    .from(mvpRecordsTable)
+    .orderBy(desc(mvpRecordsTable.computedAt))
+    .limit(limit);
+
+  res.json(rows.map((r) => ({
+    id: r.id,
+    periodLabel: r.periodLabel,
+    periodStart: r.periodStart.toISOString(),
+    periodEnd: r.periodEnd.toISOString(),
+    playerName: r.playerName,
+    rpGained: r.rpGained,
+    killsGained: r.killsGained,
+    damageGained: r.damageGained,
+    score: r.score,
+    computedAt: r.computedAt.toISOString(),
+  })));
+});
+
+// ─── Mozambique map rotation proxy ───────────────────────────────────────────
+// Simple in-memory cache so we don't hammer the map API on every dashboard load
+let mapCache: { data: unknown; expiresAt: number } | null = null;
+
+router.get("/dashboard/map", async (req, res) => {
+  const now = Date.now();
+  if (mapCache && mapCache.expiresAt > now) {
+    res.json(mapCache.data);
+    return;
+  }
+
+  const key = process.env.APEX_API_KEY;
+  if (!key) {
+    res.status(503).json({ error: "APEX_API_KEY not configured" });
+    return;
+  }
+
+  try {
+    const apiRes = await fetch(
+      `https://api.mozambiquehe.re/maprotation?auth=${encodeURIComponent(key)}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!apiRes.ok) {
+      res.status(502).json({ error: `Map API returned ${apiRes.status}` });
+      return;
+    }
+    const data = await apiRes.json();
+    // Cache for 2 minutes
+    mapCache = { data, expiresAt: now + 2 * 60 * 1000 };
+    res.json(data);
+  } catch (err) {
+    logger.warn({ err }, "Map rotation fetch failed");
+    res.status(502).json({ error: "Failed to fetch map rotation" });
+  }
+});
+
+// ─── Server status proxy ──────────────────────────────────────────────────────
+let statusCache: { data: unknown; expiresAt: number } | null = null;
+
+router.get("/dashboard/serverstatus", async (req, res) => {
+  const now = Date.now();
+  if (statusCache && statusCache.expiresAt > now) {
+    res.json(statusCache.data);
+    return;
+  }
+
+  const key = process.env.APEX_API_KEY;
+  if (!key) {
+    res.status(503).json({ error: "APEX_API_KEY not configured" });
+    return;
+  }
+
+  try {
+    const apiRes = await fetch(
+      `https://api.mozambiquehe.re/servers?auth=${encodeURIComponent(key)}`,
+      { signal: AbortSignal.timeout(8000) },
+    );
+    if (!apiRes.ok) {
+      res.status(502).json({ error: `Server status API returned ${apiRes.status}` });
+      return;
+    }
+    const data = await apiRes.json();
+    // Cache for 90 seconds
+    statusCache = { data, expiresAt: now + 90 * 1000 };
+    res.json(data);
+  } catch (err) {
+    logger.warn({ err }, "Server status fetch failed");
+    res.status(502).json({ error: "Failed to fetch server status" });
+  }
 });
 
 export default router;
