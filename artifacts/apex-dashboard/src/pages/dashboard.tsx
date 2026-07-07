@@ -413,7 +413,7 @@ function PlayerCard({
         {/* Footer: level + K/D + last seen */}
         <div className="flex items-center justify-between pt-2 border-t border-border/50 text-xs text-muted-foreground font-mono">
           <span>Lv {player.level ?? "—"}</span>
-          <span>K/D {player.kd != null ? player.kd.toFixed(2) : "—"}</span>
+          <span>K/D {player.kd != null && player.kd > 0 ? player.kd.toFixed(2) : "—"}</span>
           {player.capturedAt && (
             <span>{timeAgo(player.capturedAt)}</span>
           )}
@@ -1102,7 +1102,7 @@ export function Dashboard() {
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
                       <XAxis type="number" stroke="#374151" tick={{ fontSize: 10, fill: "#6b7280" }} />
                       <YAxis type="category" dataKey="name" stroke="#374151" tick={{ fontSize: 11, fill: "#9ca3af" }} width={80} />
-                      <Tooltip {...TOOLTIP_STYLE} formatter={(v: unknown) => [(v as number).toFixed(2), "K/D"]} />
+                      <Tooltip {...TOOLTIP_STYLE} formatter={(v: unknown) => [(v as number) > 0 ? (v as number).toFixed(2) : "—", "K/D"]} />
                       <ReferenceLine x={1} stroke="rgba(220,38,38,0.4)" strokeDasharray="4 4" label={{ value: "1.0", fill: "#6b7280", fontSize: 9 }} />
                       <Bar dataKey="KD" radius={[0, 4, 4, 0]} maxBarSize={28}>
                         {squad.map((_, i) => <Cell key={i} fill={PLAYER_COLORS[i % PLAYER_COLORS.length]} />)}
@@ -1163,7 +1163,7 @@ export function Dashboard() {
                           <td className={`p-4 font-mono ${s.damageDelta > 0 ? "text-violet-400" : "text-muted-foreground"}`}>
                             {s.hasData ? (s.damageDelta > 0 ? `+${fmtK(s.damageDelta)}` : "0") : "—"}
                           </td>
-                          <td className="p-4 font-mono text-emerald-400">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
+                          <td className="p-4 font-mono text-emerald-400">{s.kd != null && s.kd > 0 ? s.kd.toFixed(2) : "—"}</td>
                           <td className="p-4 text-muted-foreground">{s.snapshotCount}</td>
                         </tr>
                       ))
@@ -1180,7 +1180,7 @@ export function Dashboard() {
                           <td className="p-4 text-muted-foreground">{fmt(s.level)}</td>
                           <td className="p-4 font-mono">{fmt(s.kills)}</td>
                           <td className="p-4 font-mono">{fmtK(s.damage)}</td>
-                          <td className="p-4 font-mono text-emerald-400">{s.kd != null ? s.kd.toFixed(2) : "—"}</td>
+                          <td className="p-4 font-mono text-emerald-400">{s.kd != null && s.kd > 0 ? s.kd.toFixed(2) : "—"}</td>
                           <td className="p-4 text-muted-foreground text-xs font-mono">
                             {s.capturedAt ? timeAgo(s.capturedAt) : "—"}
                           </td>

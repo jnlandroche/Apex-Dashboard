@@ -47,17 +47,18 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
       );
       const metrics = extractMetrics(profile);
 
-      // Supplement K/D from tracker.gg when mozambiquehe.re returns 0.
-      // tracker.gg is optional — gracefully skipped if key is absent.
-      if (metrics.kd === 0 && process.env.TRACKERGG_API_KEY) {
+      // tracker.gg is the authoritative source for K/D when the key is set.
+      // Always attempt it so we get accurate values — mozambiquehe.re's total bag
+      // contains unrelated stats that can masquerade as a valid K/D.
+      if (process.env.TRACKERGG_API_KEY) {
         const tracker = await fetchTrackerMetrics(
           player.name,
           player.platform as "PC" | "X1" | "PS4" | "SWITCH",
         );
         if (tracker && tracker.kd > 0) {
           logger.debug(
-            { playerName: player.name, trackerKd: tracker.kd },
-            "Using tracker.gg K/D as supplement",
+            { playerName: player.name, trackerKd: tracker.kd, prevKd: metrics.kd },
+            "Using tracker.gg K/D (authoritative)",
           );
           metrics.kd = tracker.kd;
         }

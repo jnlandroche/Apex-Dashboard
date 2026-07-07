@@ -131,21 +131,6 @@ function totalMax(
   return best;
 }
 
-/**
- * Scan every key in the total bag for the highest plausible KD value.
- * Some accounts store it under "kd", others under player-specific keys.
- */
-function findBestKd(total: Record<string, TotalEntry>): number {
-  let best = 0;
-  for (const entry of Object.values(total)) {
-    if (!entry?.value) continue;
-    const n = Number(entry.value);
-    if (isNaN(n) || n <= 0 || n > 50) continue; // plausible KD range
-    if (n > best) best = n;
-  }
-  return best;
-}
-
 export function extractMetrics(profile: ApexProfile) {
   const g = (profile.global as Record<string, unknown> | undefined) ?? {};
   const raw = profile.raw as Record<string, unknown>;
@@ -157,9 +142,9 @@ export function extractMetrics(profile: ApexProfile) {
   const wins = totalVal(total, "specialEvent_wins", "wins");
   const deaths = totalMax(total, "deaths", "specialEvent_deaths");
 
-  // K/D: try the explicit kd field first, then a broad scan of the total bag
-  // (some accounts store it under a different key name), then compute from
-  // kills/deaths if both are available.
+  // K/D: use the explicit total["kd"] field only (unreliable broad scans pick
+  // up unrelated stats). Fall back to kills/deaths computation when absent.
+  // tracker.gg is the authoritative source — merged in scheduler.ts.
   const rawKdStr = (total["kd"] as TotalEntry | undefined)?.value;
   const rawKd = rawKdStr != null ? Number(rawKdStr) : 0;
 
@@ -168,17 +153,12 @@ export function extractMetrics(profile: ApexProfile) {
       ? Math.round((kills / deaths) * 100) / 100
       : 0;
 
-  const scannedKd = rawKd > 0 ? 0 : findBestKd(total);
-
+  // mozambiquehe.re uses -1 as a sentinel for "unavailable"; treat ≤ 0 as missing.
   const kd: number =
-    rawKd > 0
-      ? Math.round(rawKd * 100) / 100
-      : scannedKd > 0
-        ? Math.round(scannedKd * 100) / 100
-        : computedKd;
+    rawKd > 0 ? Math.round(rawKd * 100) / 100 : computedKd;
 
   logger.debug(
-    { playerName: profile.name, kills, damage, kd, deaths, rawKd, scannedKd, computedKd },
+    { playerName: profile.name, kills, damage, kd, deaths, rawKd, computedKd },
     "Extracted metrics from Apex API response",
   );
 

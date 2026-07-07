@@ -516,7 +516,7 @@ function SnapshotSide({ label, snap }: { label: string; snap: Snapshot }) {
         <StatMini label="RP" value={fmt(snap.rankScore)} mono />
         <StatMini label="Kills" value={fmt(snap.kills)} />
         <StatMini label="Damage" value={fmt(snap.damage)} />
-        <StatMini label="K/D" value={snap.kd != null ? snap.kd.toFixed(2) : "—"} mono />
+        <StatMini label="K/D" value={snap.kd != null && snap.kd > 0 ? snap.kd.toFixed(2) : "—"} mono />
         <StatMini label="Level" value={fmt(snap.level)} />
       </div>
     </div>

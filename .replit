@@ -33,3 +33,8 @@ externalPort = 3000
 
 [nix]
 channel = "stable-25_05"
+
+[userenv]
+
+[userenv.shared]
+TRACKERGG_API_KEY = "b830f019-738b-465b-bead-a1c318fef3ef"
