@@ -22,7 +22,11 @@ type PollLogEntry = {
 type DebugData = {
   scheduler: {
     enabled: boolean;
+    adaptive: boolean;
     intervalHours: number;
+    activeIntervalHours: number;
+    idleIntervalHours: number;
+    lastActive: boolean;
     lastRunAt: string | null;
     nextRunAt: string | null;
     lastResults: { name: string; status: string; error: string | null }[];
@@ -31,6 +35,10 @@ type DebugData = {
   apiBase: string;
   apiKeyConfigured: boolean;
 };
+
+function fmtHours(h: number): string {
+  return h < 1 ? `${Math.round(h * 60)}m` : `${h}h`;
+}
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
   success: <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />,
@@ -206,7 +214,18 @@ export function Debug() {
               </div>
               <div>
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Interval</div>
-                <div>Every {data.scheduler.intervalHours}h</div>
+                {data.scheduler.adaptive ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className={data.scheduler.lastActive ? "text-primary" : "text-muted-foreground"}>
+                      {data.scheduler.lastActive ? fmtHours(data.scheduler.activeIntervalHours) : fmtHours(data.scheduler.idleIntervalHours)}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      ({data.scheduler.lastActive ? "active" : "idle"})
+                    </span>
+                  </div>
+                ) : (
+                  <div>Every {fmtHours(data.scheduler.intervalHours)}</div>
+                )}
               </div>
               <div>
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Last Run</div>
@@ -294,7 +313,10 @@ export function Debug() {
               <li>• The Mozambique API returns <strong className="text-slate-300">lifetime totals</strong> — kills and damage reflect all-time career stats, not per-session.</li>
               <li>• There is <strong className="text-slate-300">no match history endpoint</strong> available on this API tier. Session deltas are computed from snapshot differences.</li>
               <li>• For PC players, the lookup uses the <strong className="text-slate-300">EA/Origin account name</strong> — not the Steam display name, which may differ.</li>
-              <li>• Stats are captured every <strong className="text-slate-300">{data.scheduler.intervalHours} hour(s)</strong>. Values between polls are not recorded.</li>
+              <li>• Stats are captured {data.scheduler.adaptive
+                ? <>every <strong className="text-slate-300">{fmtHours(data.scheduler.activeIntervalHours)}</strong> while the squad is active, backing off to every <strong className="text-slate-300">{fmtHours(data.scheduler.idleIntervalHours)}</strong> when idle</>
+                : <>every <strong className="text-slate-300">{fmtHours(data.scheduler.intervalHours)}</strong></>
+              }. Values between polls are not recorded.</li>
               <li>• If a player's EA profile is set to private, stats will not be available regardless of API key validity.</li>
             </ul>
           </div>

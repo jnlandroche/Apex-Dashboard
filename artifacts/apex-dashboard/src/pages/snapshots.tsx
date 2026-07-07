@@ -1,5 +1,7 @@
 import { useGetSnapshots } from "@workspace/api-client-react";
 import { History } from "lucide-react";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 
 function fmt(n: number | null | undefined) {
   if (n == null) return "—";
@@ -11,28 +13,24 @@ export function Snapshots() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Snapshots</h1>
-        <div className="mt-2 rounded-xl border border-border/60 bg-card/50 px-4 py-3 text-sm text-muted-foreground flex gap-2 items-start max-w-2xl">
-          <History size={15} className="mt-0.5 shrink-0 text-primary" />
-          <span>
-            Apex APIs provide stat snapshots rather than perfect match-by-match history. This app stores each snapshot as it's captured and builds trends from them over time.
-          </span>
-        </div>
-      </div>
+      <PageHeader
+        title="Snapshots"
+        description="Apex APIs provide stat snapshots rather than perfect match-by-match history. This app stores each snapshot as it's captured and builds trends from them over time."
+      />
 
-      <div className="rounded-2xl border border-border bg-card overflow-hidden">
-        {isLoading ? (
-          <div className="p-8 space-y-3">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="h-10 rounded-lg bg-background animate-pulse" />
-            ))}
-          </div>
-        ) : !rows?.length ? (
-          <div className="p-12 text-center text-muted-foreground">
-            No snapshots yet. Add players and click Refresh Stats on the Dashboard.
-          </div>
-        ) : (
+      {isLoading ? (
+        <div className="rounded-2xl border border-border bg-card p-8 space-y-3">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="h-10 rounded-lg bg-background animate-pulse" />
+          ))}
+        </div>
+      ) : !rows?.length ? (
+        <EmptyState
+          icon={History}
+          message="No snapshots yet. Add players and click Refresh Stats on the Dashboard."
+        />
+      ) : (
+        <div className="rounded-2xl border border-border bg-card overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -69,8 +67,8 @@ export function Snapshots() {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -108,7 +108,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <div className="p-4 border-t border-border">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">Snapshot · 1h refresh</span>
+            <span className="text-[10px] text-muted-foreground font-mono uppercase tracking-wider">Adaptive refresh · 15m–2h</span>
           </div>
         </div>
       </aside>

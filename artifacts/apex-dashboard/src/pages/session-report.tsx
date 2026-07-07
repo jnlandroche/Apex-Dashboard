@@ -284,7 +284,7 @@ export function SessionReport() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Session Report</h1>
+          <h1 className="text-3xl font-black tracking-tight">Session Report</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             Compare squad stats between any two points in time.
             {sessionDurationLabel && (

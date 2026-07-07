@@ -1,14 +1,27 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Key, Database, RefreshCw, ExternalLink, Clock, CheckCircle, XCircle, Play } from "lucide-react";
+import { Key, Database, RefreshCw, ExternalLink, Clock, CheckCircle, XCircle, Play, Zap } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { PageHeader } from "@/components/page-header";
 
 type SchedulerStatus = {
   enabled: boolean;
+  adaptive: boolean;
   intervalHours: number;
+  activeIntervalHours: number;
+  idleIntervalHours: number;
+  lastActive: boolean;
   lastRunAt: string | null;
   nextRunAt: string | null;
   lastResults: Array<{ name: string; status: string; error: string | null }>;
+};
+
+type SchedulerConfigBody = {
+  enabled?: boolean;
+  adaptive?: boolean;
+  intervalHours?: number;
+  activeIntervalHours?: number;
+  idleIntervalHours?: number;
 };
 
 function useSchedulerStatus() {
@@ -26,7 +39,7 @@ function useSchedulerStatus() {
 function useUpdateScheduler() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { enabled?: boolean; intervalHours?: number }) => {
+    mutationFn: async (body: SchedulerConfigBody) => {
       const res = await fetch("/api/scheduler/config", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -58,7 +71,21 @@ function useRunNow() {
   });
 }
 
-const INTERVAL_OPTIONS = [
+const ACTIVE_INTERVAL_OPTIONS = [
+  { label: "10 minutes", value: 1 / 6 },
+  { label: "15 minutes", value: 0.25 },
+  { label: "30 minutes", value: 0.5 },
+  { label: "1 hour", value: 1 },
+];
+
+const IDLE_INTERVAL_OPTIONS = [
+  { label: "1 hour", value: 1 },
+  { label: "2 hours", value: 2 },
+  { label: "4 hours", value: 4 },
+  { label: "12 hours", value: 12 },
+];
+
+const FIXED_INTERVAL_OPTIONS = [
   { label: "30 minutes", value: 0.5 },
   { label: "1 hour", value: 1 },
   { label: "2 hours", value: 2 },
@@ -84,16 +111,51 @@ function timeUntil(iso: string | null) {
   return rem > 0 ? `${hrs}h ${rem}m` : `${hrs}h`;
 }
 
+function IntervalPicker({
+  label,
+  options,
+  value,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  options: { label: string; value: number }[];
+  value: number;
+  onChange: (v: number) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div>
+      <label className="text-xs text-muted-foreground uppercase tracking-wide block mb-2">{label}</label>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => onChange(opt.value)}
+            disabled={disabled}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 ${
+              value === opt.value
+                ? "bg-primary text-primary-foreground"
+                : "bg-background border border-border text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function Settings() {
   const { data: scheduler, isLoading } = useSchedulerStatus();
   const updateScheduler = useUpdateScheduler();
   const runNow = useRunNow();
   const { toast } = useToast();
-  const [pendingInterval, setPendingInterval] = useState<number | null>(null);
 
-  const currentInterval = pendingInterval ?? scheduler?.intervalHours ?? 4;
+  const isAdaptive = scheduler?.adaptive ?? true;
 
-  function handleToggle() {
+  function handleToggleEnabled() {
     if (!scheduler) return;
     updateScheduler.mutate(
       { enabled: !scheduler.enabled },
@@ -108,16 +170,35 @@ export function Settings() {
     );
   }
 
-  function handleIntervalChange(val: number) {
-    setPendingInterval(val);
+  function handleToggleAdaptive() {
     updateScheduler.mutate(
-      { intervalHours: val },
+      { adaptive: !isAdaptive },
       {
-        onSuccess: () => {
-          setPendingInterval(null);
-          toast({ title: `Interval set to every ${val < 1 ? val * 60 + " minutes" : val + " hours"}` });
+        onSuccess: (data: { adaptive: boolean }) => {
+          toast({ title: data.adaptive ? "Adaptive polling enabled" : "Switched to fixed interval" });
         },
       },
+    );
+  }
+
+  function handleActiveInterval(val: number) {
+    updateScheduler.mutate(
+      { activeIntervalHours: val },
+      { onSuccess: () => toast({ title: `Active-session polling set to every ${val < 1 ? Math.round(val * 60) + " minutes" : val + " hours"}` }) },
+    );
+  }
+
+  function handleIdleInterval(val: number) {
+    updateScheduler.mutate(
+      { idleIntervalHours: val },
+      { onSuccess: () => toast({ title: `Idle polling set to every ${val < 1 ? Math.round(val * 60) + " minutes" : val + " hours"}` }) },
+    );
+  }
+
+  function handleFixedInterval(val: number) {
+    updateScheduler.mutate(
+      { intervalHours: val },
+      { onSuccess: () => toast({ title: `Fixed interval set to every ${val < 1 ? val * 60 + " minutes" : val + " hours"}` }) },
     );
   }
 
@@ -135,12 +216,7 @@ export function Settings() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Configuration and reference for the 5SK Apex Dashboard.
-        </p>
-      </div>
+      <PageHeader title="Settings" description="Configuration and reference for the 5SK Apex Dashboard." />
 
       {/* Auto-refresh scheduler */}
       <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
@@ -151,14 +227,12 @@ export function Settings() {
 
         {/* Status row */}
         <div className="flex items-center gap-3">
-          <div
-            className={`w-2.5 h-2.5 rounded-full ${scheduler?.enabled ? "bg-emerald-400" : "bg-muted-foreground"}`}
-          />
+          <div className={`w-2.5 h-2.5 rounded-full ${scheduler?.enabled ? "bg-emerald-400" : "bg-muted-foreground"}`} />
           <span className="text-sm font-medium">
             {isLoading ? "Loading…" : scheduler?.enabled ? "Active" : "Paused"}
           </span>
           <button
-            onClick={handleToggle}
+            onClick={handleToggleEnabled}
             disabled={isLoading || updateScheduler.isPending}
             className={`ml-auto px-4 py-1.5 rounded-lg text-xs font-semibold transition-opacity disabled:opacity-40 ${
               scheduler?.enabled
@@ -180,48 +254,70 @@ export function Settings() {
             <div className="text-[10px] text-muted-foreground uppercase tracking-wide mb-1">Next Run</div>
             <div className="text-sm font-mono">{fmtTime(scheduler?.nextRunAt ?? null)}</div>
             {scheduler?.nextRunAt && (
-              <div className="text-[10px] text-primary mt-0.5">
-                in {timeUntil(scheduler.nextRunAt)}
-              </div>
+              <div className="text-[10px] text-primary mt-0.5">in {timeUntil(scheduler.nextRunAt)}</div>
             )}
           </div>
         </div>
 
-        {/* Interval selector */}
-        <div>
-          <label className="text-xs text-muted-foreground uppercase tracking-wide block mb-2">
-            Refresh every
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {INTERVAL_OPTIONS.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => handleIntervalChange(opt.value)}
-                disabled={updateScheduler.isPending}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 ${
-                  currentInterval === opt.value
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-background border border-border text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {opt.label}
-              </button>
-            ))}
+        {/* Adaptive vs fixed toggle */}
+        <div className="flex items-center gap-3 rounded-lg bg-background border border-border p-3">
+          <Zap size={14} className={isAdaptive ? "text-primary" : "text-muted-foreground"} />
+          <div className="flex-1">
+            <div className="text-sm font-medium">Adaptive polling</div>
+            <div className="text-xs text-muted-foreground mt-0.5">
+              {isAdaptive
+                ? `Polls tighter while the squad is active, backs off when idle. Currently: ${scheduler?.lastActive ? "active session detected" : "idle"}.`
+                : "Polls on one fixed interval regardless of activity."}
+            </div>
           </div>
+          <button
+            onClick={handleToggleAdaptive}
+            disabled={isLoading || updateScheduler.isPending}
+            className={`shrink-0 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 ${
+              isAdaptive
+                ? "bg-primary text-primary-foreground"
+                : "bg-background border border-border text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {isAdaptive ? "On" : "Off"}
+          </button>
         </div>
+
+        {/* Interval selectors — adaptive shows two, fixed shows one */}
+        {isAdaptive ? (
+          <div className="space-y-4">
+            <IntervalPicker
+              label="While active"
+              options={ACTIVE_INTERVAL_OPTIONS}
+              value={scheduler?.activeIntervalHours ?? 0.25}
+              onChange={handleActiveInterval}
+              disabled={updateScheduler.isPending}
+            />
+            <IntervalPicker
+              label="While idle"
+              options={IDLE_INTERVAL_OPTIONS}
+              value={scheduler?.idleIntervalHours ?? 2}
+              onChange={handleIdleInterval}
+              disabled={updateScheduler.isPending}
+            />
+          </div>
+        ) : (
+          <IntervalPicker
+            label="Refresh every"
+            options={FIXED_INTERVAL_OPTIONS}
+            value={scheduler?.intervalHours ?? 1}
+            onChange={handleFixedInterval}
+            disabled={updateScheduler.isPending}
+          />
+        )}
 
         {/* Last results */}
         {scheduler?.lastResults && scheduler.lastResults.length > 0 && (
           <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">
-              Last Poll Results
-            </div>
+            <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">Last Poll Results</div>
             <div className="space-y-1.5">
               {scheduler.lastResults.map((r) => (
-                <div
-                  key={r.name}
-                  className="flex items-center gap-2 text-sm rounded-lg bg-background border border-border px-3 py-2"
-                >
+                <div key={r.name} className="flex items-center gap-2 text-sm rounded-lg bg-background border border-border px-3 py-2">
                   {r.status === "updated" ? (
                     <CheckCircle size={13} className="text-emerald-400 shrink-0" />
                   ) : (
@@ -229,9 +325,7 @@ export function Settings() {
                   )}
                   <span className="font-medium">{r.name}</span>
                   {r.error && (
-                    <span className="text-destructive text-xs ml-auto truncate max-w-[200px]">
-                      {r.error}
-                    </span>
+                    <span className="text-destructive text-xs ml-auto truncate max-w-[200px]">{r.error}</span>
                   )}
                 </div>
               ))}
@@ -283,7 +377,10 @@ export function Settings() {
           All player records and stat snapshots are stored in a PostgreSQL database provisioned by Replit.
         </p>
         <div className="rounded-lg bg-background border border-border p-4">
-          <pre className="text-sm font-mono text-foreground">{`players          — tracked squad members\nstat_snapshots   — historical stat captures`}</pre>
+          <pre className="text-sm font-mono text-foreground">{`players          — tracked squad members
+stat_snapshots   — historical stat captures (realtime state, kills, damage, RP, K/D)
+mvp_records      — persisted 7-day MVP winners
+poll_log         — API poll history for the Debug panel (14-day retention)`}</pre>
         </div>
       </div>
 

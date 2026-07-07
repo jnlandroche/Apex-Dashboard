@@ -7,8 +7,10 @@ import {
   useAddPlayer,
   useDeletePlayer,
 } from "@workspace/api-client-react";
-import { UserPlus, Trash2, Monitor, Gamepad2 } from "lucide-react";
+import { UserPlus, Trash2, Monitor, Gamepad2, Users } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { PageHeader } from "@/components/page-header";
+import { EmptyState } from "@/components/empty-state";
 
 const PLATFORMS = [
   { value: "PC", label: "PC" },
@@ -80,12 +82,10 @@ export function Players() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Players</h1>
-        <p className="text-muted-foreground mt-1 text-sm">
-          Add your squad members by their Apex Legends username.
-        </p>
-      </div>
+      <PageHeader
+        title="Players"
+        description="Add your squad members by their Apex Legends username."
+      />
 
       {/* Add player form */}
       <div className="rounded-2xl border border-border bg-card p-6">
@@ -154,9 +154,10 @@ export function Players() {
           ))}
         </div>
       ) : !players?.length ? (
-        <div className="rounded-2xl border border-dashed border-border p-12 text-center text-muted-foreground">
-          No players added yet. Use the form above to add your squad.
-        </div>
+        <EmptyState
+          icon={Users}
+          message="No players added yet. Use the form above to add your squad."
+        />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {players.map((p) => (
