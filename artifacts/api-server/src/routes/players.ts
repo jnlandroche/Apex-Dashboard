@@ -60,6 +60,7 @@ router.post("/players", requireApiKey, async (req, res) => {
       kills: metrics.kills,
       damage: metrics.damage,
       kd: metrics.kd,
+      realtimeState: metrics.realtimeState,
     });
 
     res.status(201).json({
@@ -73,8 +74,16 @@ router.post("/players", requireApiKey, async (req, res) => {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : "Unknown error";
-    req.log.error({ err }, "Failed to add player");
-    res.status(500).json({ error: msg });
+    const kind = (err as { kind?: string }).kind ?? "error";
+    req.log.error({ err, kind }, "Failed to add player");
+    // Map API error kinds to appropriate HTTP status codes.
+    const status =
+      kind === "not_found" ? 404
+      : kind === "private" ? 403
+      : kind === "rate_limited" ? 429
+      : kind === "auth" ? 502   // our key is bad — upstream auth failure
+      : 500;
+    res.status(status).json({ error: msg });
   }
 });
 
