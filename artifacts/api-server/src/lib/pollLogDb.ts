@@ -17,7 +17,8 @@ export type PollLogEntry = {
   timestamp: string;
 };
 
-const MAX_ROWS = 500;
+// Row-count cap kept as a future safety net if day-based pruning proves insufficient.
+const MAX_ROWS_CAP = 500;
 
 // Persists poll log entries to Postgres so debug history survives redeploys/restarts
 // (the previous in-memory version was wiped every time Replit restarted the server).
@@ -75,4 +76,4 @@ export async function prunePollLog(olderThanDays = 14): Promise<void> {
   }
 }
 
-void MAX_ROWS; // reserved for a future row-count-based cap if day-based pruning isn't enough
+void MAX_ROWS_CAP;

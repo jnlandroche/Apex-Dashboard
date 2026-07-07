@@ -1,5 +1,5 @@
 import { db, playersTable, statSnapshotsTable, mvpRecordsTable } from "@workspace/db";
-import { eq, desc, gte } from "drizzle-orm";
+import { eq, desc, gte, and } from "drizzle-orm";
 import { fetchApexProfile, extractMetrics } from "./apex.js";
 import { fetchTrackerMetrics } from "./tracker.js";
 import { logger } from "./logger.js";
@@ -216,7 +216,7 @@ async function persistMvpRecord() {
   }> = [];
 
   for (const player of activePlayers) {
-    const snapshots = await db
+    const weekPoints = await db
       .select({
         rankScore: statSnapshotsTable.rankScore,
         kills: statSnapshotsTable.kills,
@@ -225,11 +225,12 @@ async function persistMvpRecord() {
       })
       .from(statSnapshotsTable)
       .where(
-        eq(statSnapshotsTable.playerId, player.id),
+        and(
+          eq(statSnapshotsTable.playerId, player.id),
+          gte(statSnapshotsTable.capturedAt, weekAgo),
+        ),
       )
       .orderBy(statSnapshotsTable.capturedAt);
-
-    const weekPoints = snapshots.filter((s) => s.capturedAt >= weekAgo);
     if (weekPoints.length < 2) continue;
 
     const first = weekPoints[0];

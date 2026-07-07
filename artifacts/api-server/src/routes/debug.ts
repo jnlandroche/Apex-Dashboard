@@ -12,7 +12,11 @@ router.get("/debug", async (req, res) => {
   res.json({
     scheduler: {
       enabled: schedulerState.enabled,
+      adaptive: schedulerState.adaptive,
       intervalHours: schedulerState.intervalHours,
+      activeIntervalHours: schedulerState.activeIntervalHours,
+      idleIntervalHours: schedulerState.idleIntervalHours,
+      lastActive: schedulerState.lastActive,
       lastRunAt: schedulerState.lastRunAt?.toISOString() ?? null,
       nextRunAt: schedulerState.nextRunAt?.toISOString() ?? null,
       lastResults: schedulerState.lastResults,
