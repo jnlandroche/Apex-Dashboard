@@ -427,7 +427,15 @@ function PlayerCard({
 
 export function Dashboard() {
   const { data, isLoading } = useGetDashboardSummary();
-  const { data: trends } = useGetTrends();
+  const [periodKey, setPeriodKey] = useState<PeriodKey>("7d");
+
+  // The trends endpoint buckets its resolution to the requested window (fine-grained
+  // for short windows, coarser for long ones) — without this, short windows like
+  // "Last 1h/4h/8h" were built from data flattened to 4-hour buckets and would
+  // routinely show "no changes detected" even when real movement had happened.
+  const trendsWindow = periodKey === "total" ? undefined : periodKey;
+  const { data: trends } = useGetTrends(trendsWindow ? { window: trendsWindow } : undefined);
+
   const { data: mvpHistory } = useGetMvpHistory({ limit: 10 });
   const { data: mapRotation } = useGetMapRotation();
   const { data: serverStatus } = useGetServerStatus();
@@ -436,7 +444,6 @@ export function Dashboard() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [polling, setPolling] = useState(false);
-  const [periodKey, setPeriodKey] = useState<PeriodKey>("7d");
   const [showMvpHistory, setShowMvpHistory] = useState(false);
 
   const squad = (data?.squadStats ?? []) as SquadPlayer[];

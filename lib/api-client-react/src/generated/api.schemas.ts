@@ -65,6 +65,11 @@ export interface Snapshot {
   damage?: number | null;
   /** @nullable */
   kd?: number | null;
+  /**
+   * Raw realtime.currentState from mozambiquehe.re (e.g. online/offline/in lobby), used for session-boundary detection. Not guaranteed present for every account.
+   * @nullable
+   */
+  realtimeState?: string | null;
 }
 
 export interface PlayerStats {
@@ -167,6 +172,26 @@ export type GetSnapshotsParams = {
    */
   since?: string | null;
 };
+
+export type GetTrendsParams = {
+  /**
+   * Defaults to "total" (full history, 4h buckets) when omitted.
+   */
+  window?: GetTrendsWindow;
+};
+
+export type GetTrendsWindow =
+  (typeof GetTrendsWindow)[keyof typeof GetTrendsWindow];
+
+export const GetTrendsWindow = {
+  "1h": "1h",
+  "4h": "4h",
+  "8h": "8h",
+  "24h": "24h",
+  "48h": "48h",
+  "7d": "7d",
+  total: "total",
+} as const;
 
 export type GetMvpHistoryParams = {
   limit?: number;

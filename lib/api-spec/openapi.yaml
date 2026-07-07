@@ -188,6 +188,18 @@ paths:
       operationId: getTrends
       tags: [dashboard]
       summary: Get rank score trends over time per player
+      description: >
+        Bucket resolution scales with the requested window (fine-grained for short
+        windows, coarser for long ones) so short-window views aren't flattened by a
+        bucket size sized for a much longer range.
+      parameters:
+        - name: window
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: ["1h", "4h", "8h", "24h", "48h", "7d", "total"]
+          description: Defaults to "total" (full history, 4h buckets) when omitted.
       responses:
         "200":
           description: Trend data per player

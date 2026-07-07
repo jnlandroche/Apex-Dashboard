@@ -63,7 +63,7 @@ export function Snapshots() {
                     <td className="p-4">{fmt(r.level)}</td>
                     <td className="p-4">{fmt(r.kills)}</td>
                     <td className="p-4">{fmt(r.damage)}</td>
-                    <td className="p-4 font-mono">{r.kd != null ? r.kd.toFixed(2) : "—"}</td>
+                    <td className="p-4 font-mono">{r.kd != null && r.kd > 0 ? r.kd.toFixed(2) : "—"}</td>
                   </tr>
                 ))}
               </tbody>

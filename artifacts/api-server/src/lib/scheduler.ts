@@ -89,12 +89,22 @@ export async function pollAllPlayers(): Promise<PollResult[]> {
           player.name,
           player.platform as "PC" | "X1" | "PS4" | "SWITCH",
         );
-        if (tracker && tracker.kd > 0) {
+        // Sanity guard: even the best Apex players rarely sustain a lifetime K/D above
+        // ~15-20. A reading outside that range (seen in production as a one-off 39.00
+        // spike with otherwise-unchanged kills/damage) is far more likely a transient
+        // upstream glitch than a real stat, so it's logged and discarded rather than
+        // silently overwriting a previously good value.
+        if (tracker && tracker.kd > 0 && tracker.kd <= 20) {
           logger.debug(
             { playerName: player.name, trackerKd: tracker.kd, prevKd: metrics.kd },
             "Using tracker.gg K/D (authoritative)",
           );
           metrics.kd = tracker.kd;
+        } else if (tracker && tracker.kd > 20) {
+          logger.warn(
+            { playerName: player.name, rejectedKd: tracker.kd },
+            "tracker.gg returned an implausible K/D — discarding, keeping previous value",
+          );
         }
       }
 

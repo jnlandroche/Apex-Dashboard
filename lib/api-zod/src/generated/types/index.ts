@@ -12,6 +12,8 @@ export * from "./deleteResult";
 export * from "./getMvpHistoryParams";
 export * from "./getServerStatus200";
 export * from "./getSnapshotsParams";
+export * from "./getTrendsParams";
+export * from "./getTrendsWindow";
 export * from "./healthStatus";
 export * from "./mapRotation";
 export * from "./mapRotationArenas";

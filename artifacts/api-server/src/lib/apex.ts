@@ -161,8 +161,11 @@ export function extractMetrics(profile: ApexProfile) {
       : 0;
 
   // mozambiquehe.re uses -1 as a sentinel for "unavailable"; treat ≤ 0 as missing.
+  // Also guard against implausible spikes (seen in production: a one-off 39.00 reading
+  // with otherwise-unchanged kills/damage) — even top players rarely sustain a lifetime
+  // K/D above ~15-20, so anything past that is more likely an upstream glitch than real.
   const kd: number =
-    rawKd > 0 ? Math.round(rawKd * 100) / 100 : computedKd;
+    rawKd > 0 && rawKd <= 20 ? Math.round(rawKd * 100) / 100 : computedKd;
 
   logger.debug(
     { playerName: profile.name, kills, damage, kd, deaths, rawKd, computedKd },

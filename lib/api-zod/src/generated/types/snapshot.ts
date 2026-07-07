@@ -24,4 +24,9 @@ export interface Snapshot {
   damage?: number | null;
   /** @nullable */
   kd?: number | null;
+  /**
+   * Raw realtime.currentState from mozambiquehe.re (e.g. online/offline/in lobby), used for session-boundary detection. Not guaranteed present for every account.
+   * @nullable
+   */
+  realtimeState?: string | null;
 }

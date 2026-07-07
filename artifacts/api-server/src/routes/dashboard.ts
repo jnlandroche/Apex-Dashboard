@@ -76,13 +76,25 @@ router.get("/dashboard/leaderboard", async (req, res) => {
   res.json(sorted);
 });
 
-// Collapse sorted snapshots into one data point per 4-hour bucket (last in bucket wins)
-const TREND_BUCKET_MS = 4 * 60 * 60 * 1000;
+// Collapse sorted snapshots into one data point per bucket (last in bucket wins).
+// Bucket size must scale with the requested window: a 4h bucket was fine when polling
+// was hourly, but at a 15-min poll interval it silently flattens "Last 1h/4h/8h" views
+// down to 1-2 data points — which is exactly why those views were showing "no changes
+// detected" even when the /snapshots table clearly had real minute-to-minute movement.
+const BUCKET_MS_FOR_WINDOW: Record<string, number> = {
+  "1h": 2 * 60 * 1000, // 2 min
+  "4h": 5 * 60 * 1000, // 5 min
+  "8h": 10 * 60 * 1000, // 10 min
+  "24h": 30 * 60 * 1000, // 30 min
+  "48h": 60 * 60 * 1000, // 1 hr
+  "7d": 4 * 60 * 60 * 1000, // 4 hr
+  total: 4 * 60 * 60 * 1000, // 4 hr (unchanged default for the full-history view)
+};
 
-function downsampleTo4h<T extends { capturedAt: Date }>(rows: T[]): T[] {
+function downsample<T extends { capturedAt: Date }>(rows: T[], bucketMs: number): T[] {
   const buckets = new Map<number, T>();
   for (const row of rows) {
-    const bucket = Math.floor(row.capturedAt.getTime() / TREND_BUCKET_MS);
+    const bucket = Math.floor(row.capturedAt.getTime() / bucketMs);
     buckets.set(bucket, row);
   }
   return [...buckets.values()].sort(
@@ -90,12 +102,19 @@ function downsampleTo4h<T extends { capturedAt: Date }>(rows: T[]): T[] {
   );
 }
 
-// GET /dashboard/trends
+// GET /dashboard/trends?window=1h|4h|8h|24h|48h|7d|total
 router.get("/dashboard/trends", async (req, res) => {
+  const windowParam = typeof req.query.window === "string" ? req.query.window : "total";
+  const bucketMs = BUCKET_MS_FOR_WINDOW[windowParam] ?? BUCKET_MS_FOR_WINDOW.total;
+  const windowMs = windowParam !== "total" ? WINDOW_MS[windowParam] : undefined;
+
   const activePlayers = await db.select().from(playersTable).where(eq(playersTable.active, true));
 
   const trends = await Promise.all(
     activePlayers.map(async (player) => {
+      const conditions = [eq(statSnapshotsTable.playerId, player.id)];
+      if (windowMs) conditions.push(gte(statSnapshotsTable.capturedAt, new Date(Date.now() - windowMs)));
+
       const snapshots = await db
         .select({
           capturedAt: statSnapshotsTable.capturedAt,
@@ -104,11 +123,11 @@ router.get("/dashboard/trends", async (req, res) => {
           damage: statSnapshotsTable.damage,
         })
         .from(statSnapshotsTable)
-        .where(eq(statSnapshotsTable.playerId, player.id))
+        .where(and(...conditions))
         .orderBy(statSnapshotsTable.capturedAt)
-        .limit(500);
+        .limit(2000);
 
-      const downsampled = downsampleTo4h(snapshots);
+      const downsampled = downsample(snapshots, bucketMs);
 
       return {
         playerId: player.id,

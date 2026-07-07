@@ -23,6 +23,7 @@ import type {
   GetMvpHistoryParams,
   GetServerStatus200,
   GetSnapshotsParams,
+  GetTrendsParams,
   HealthStatus,
   MapRotation,
   MvpRecord,
@@ -690,39 +691,61 @@ export function useGetLeaderboard<
 }
 
 /**
+ * Bucket resolution scales with the requested window (fine-grained for short windows, coarser for long ones) so short-window views aren't flattened by a bucket size sized for a much longer range.
+
  * @summary Get rank score trends over time per player
  */
-export const getGetTrendsUrl = () => {
-  return `/api/dashboard/trends`;
+export const getGetTrendsUrl = (params?: GetTrendsParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/dashboard/trends?${stringifiedParams}`
+    : `/api/dashboard/trends`;
 };
 
 export const getTrends = async (
+  params?: GetTrendsParams,
   options?: RequestInit,
 ): Promise<PlayerTrend[]> => {
-  return customFetch<PlayerTrend[]>(getGetTrendsUrl(), {
+  return customFetch<PlayerTrend[]>(getGetTrendsUrl(params), {
     ...options,
     method: "GET",
   });
 };
 
-export const getGetTrendsQueryKey = () => {
-  return [`/api/dashboard/trends`] as const;
+export const getGetTrendsQueryKey = (params?: GetTrendsParams) => {
+  return [`/api/dashboard/trends`, ...(params ? [params] : [])] as const;
 };
 
 export const getGetTrendsQueryOptions = <
   TData = Awaited<ReturnType<typeof getTrends>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof getTrends>>, TError, TData>;
-  request?: SecondParameter<typeof customFetch>;
-}) => {
+>(
+  params?: GetTrendsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTrends>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
   const { query: queryOptions, request: requestOptions } = options ?? {};
 
-  const queryKey = queryOptions?.queryKey ?? getGetTrendsQueryKey();
+  const queryKey = queryOptions?.queryKey ?? getGetTrendsQueryKey(params);
 
   const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrends>>> = ({
     signal,
-  }) => getTrends({ signal, ...requestOptions });
+  }) => getTrends(params, { signal, ...requestOptions });
 
   return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
     Awaited<ReturnType<typeof getTrends>>,
@@ -743,11 +766,18 @@ export type GetTrendsQueryError = ErrorType<unknown>;
 export function useGetTrends<
   TData = Awaited<ReturnType<typeof getTrends>>,
   TError = ErrorType<unknown>,
->(options?: {
-  query?: UseQueryOptions<Awaited<ReturnType<typeof getTrends>>, TError, TData>;
-  request?: SecondParameter<typeof customFetch>;
-}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
-  const queryOptions = getGetTrendsQueryOptions(options);
+>(
+  params?: GetTrendsParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getTrends>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetTrendsQueryOptions(params, options);
 
   const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
     queryKey: QueryKey;

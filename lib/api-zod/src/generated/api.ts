@@ -93,6 +93,12 @@ export const GetSnapshotsResponseItem = zod.object({
   kills: zod.number().nullish(),
   damage: zod.number().nullish(),
   kd: zod.number().nullish(),
+  realtimeState: zod
+    .string()
+    .nullish()
+    .describe(
+      "Raw realtime.currentState from mozambiquehe.re (e.g. online\/offline\/in lobby), used for session-boundary detection. Not guaranteed present for every account.",
+    ),
 });
 export const GetSnapshotsResponse = zod.array(GetSnapshotsResponseItem);
 
@@ -142,8 +148,17 @@ export const GetLeaderboardResponseItem = zod.object({
 export const GetLeaderboardResponse = zod.array(GetLeaderboardResponseItem);
 
 /**
+ * Bucket resolution scales with the requested window (fine-grained for short windows, coarser for long ones) so short-window views aren't flattened by a bucket size sized for a much longer range.
+
  * @summary Get rank score trends over time per player
  */
+export const GetTrendsQueryParams = zod.object({
+  window: zod
+    .enum(["1h", "4h", "8h", "24h", "48h", "7d", "total"])
+    .optional()
+    .describe('Defaults to \"total\" (full history, 4h buckets) when omitted.'),
+});
+
 export const GetTrendsResponseItem = zod.object({
   playerId: zod.number(),
   name: zod.string(),
