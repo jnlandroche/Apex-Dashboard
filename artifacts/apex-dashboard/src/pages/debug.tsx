@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePollStats } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
-import { Terminal, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Clock, Key, Wifi, ChevronDown, ChevronUp } from "lucide-react";
+import { Terminal, RefreshCw, CheckCircle2, XCircle, AlertTriangle, Clock, Key, Wifi } from "lucide-react";
+import { RawPreview } from "@/components/raw-preview";
 
 type PollLogEntry = {
   playerName: string;
@@ -64,26 +65,6 @@ function timeAgo(iso: string) {
   const h = Math.floor(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
-}
-
-function RawPreview({ preview }: { preview: string }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="mt-2">
-      <button
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground transition-colors"
-      >
-        {open ? <ChevronUp size={10} /> : <ChevronDown size={10} />}
-        {open ? "Hide" : "Show"} raw JSON preview
-      </button>
-      {open && (
-        <pre className="mt-2 p-3 rounded-md bg-black/50 border border-border text-[10px] font-mono text-slate-300 overflow-x-auto whitespace-pre-wrap break-all">
-          {preview}
-        </pre>
-      )}
-    </div>
-  );
 }
 
 export function Debug() {

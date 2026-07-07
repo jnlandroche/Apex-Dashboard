@@ -22,8 +22,11 @@ import {
   Monitor,
   Gamepad2,
   Star,
+  History,
+  Swords,
 } from "lucide-react";
 import { RankBadge } from "@/components/rank-badge";
+import { RawPreview } from "@/components/raw-preview";
 
 const PLAYER_COLORS = ["#22d3ee", "#f59e0b", "#f43f5e", "#8b5cf6", "#10b981"];
 
@@ -155,6 +158,107 @@ function MiniChart({
           </LineChart>
         </ResponsiveContainer>
       </div>
+    </div>
+  );
+}
+
+// ─── Tracker.gg sessions & legend breakdown (beta) ────────────────────────────
+// tracker.gg's own API clusters match history into real gaming sessions (45+ min
+// gap = new session) and per-legend stat segments — richer than what we derive
+// ourselves from periodic snapshots. The exact response shape hasn't been verified
+// against a live key yet (there are unresolved community reports of this specific
+// endpoint returning 401 even with a valid key), so this fetches on-demand and shows
+// the raw response rather than a parsed summary, until the shape is confirmed.
+type TrackerRawResult = { ok: boolean; status: number | null; data: unknown; error: string | null };
+
+function TrackerRawPanel({ playerId }: { playerId: number }) {
+  const [sessions, setSessions] = useState<TrackerRawResult | null>(null);
+  const [segments, setSegments] = useState<TrackerRawResult | null>(null);
+  const [loading, setLoading] = useState<"sessions" | "segments" | null>(null);
+
+  async function loadSessions() {
+    setLoading("sessions");
+    try {
+      const res = await fetch(`/api/players/${playerId}/tracker-sessions`);
+      setSessions(await res.json());
+    } catch {
+      setSessions({ ok: false, status: null, data: null, error: "Request failed" });
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  async function loadSegments() {
+    setLoading("segments");
+    try {
+      const res = await fetch(`/api/players/${playerId}/tracker-segments?type=legend`);
+      setSegments(await res.json());
+    } catch {
+      setSegments({ ok: false, status: null, data: null, error: "Request failed" });
+    } finally {
+      setLoading(null);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <div className="flex items-center gap-2 mb-1">
+        <History size={13} className="text-primary" />
+        <h3 className="text-sm font-semibold">Tracker.gg Sessions & Legends</h3>
+        <span className="ml-auto text-[10px] font-mono uppercase tracking-wide text-amber-400/80 border border-amber-800/40 bg-amber-950/20 px-1.5 py-0.5 rounded">
+          beta
+        </span>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        tracker.gg detects real gaming sessions from match history (45+ min gap = new session) and
+        per-legend stat breakdowns. Shape not yet confirmed against a live key — showing raw response.
+      </p>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        <button
+          onClick={loadSessions}
+          disabled={loading !== null}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium hover:bg-white/[0.04] disabled:opacity-40 transition-colors"
+        >
+          <History size={12} className="text-primary" />
+          {loading === "sessions" ? "Loading…" : "Fetch sessions"}
+        </button>
+        <button
+          onClick={loadSegments}
+          disabled={loading !== null}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-background text-xs font-medium hover:bg-white/[0.04] disabled:opacity-40 transition-colors"
+        >
+          <Swords size={12} className="text-primary" />
+          {loading === "segments" ? "Loading…" : "Fetch legend stats"}
+        </button>
+      </div>
+
+      {sessions && (
+        <div className="mb-3">
+          {sessions.ok ? (
+            <div className="text-xs text-emerald-400 mb-1">✓ Sessions response received</div>
+          ) : (
+            <div className="text-xs text-destructive mb-1">
+              ✗ {sessions.error ?? `Failed (status ${sessions.status ?? "?"})`}
+              {sessions.status === 401 && " — this may need elevated tracker.gg API access beyond the standard key"}
+            </div>
+          )}
+          <RawPreview preview={JSON.stringify(sessions.data, null, 2)} label="sessions raw response" />
+        </div>
+      )}
+
+      {segments && (
+        <div>
+          {segments.ok ? (
+            <div className="text-xs text-emerald-400 mb-1">✓ Legend segments response received</div>
+          ) : (
+            <div className="text-xs text-destructive mb-1">
+              ✗ {segments.error ?? `Failed (status ${segments.status ?? "?"})`}
+            </div>
+          )}
+          <RawPreview preview={JSON.stringify(segments.data, null, 2)} label="segments raw response" />
+        </div>
+      )}
     </div>
   );
 }
@@ -313,6 +417,9 @@ export function PlayerProfile() {
               </div>
             );
           })()}
+
+          {/* Tracker.gg sessions & legend breakdown (beta) */}
+          {playerId != null && <TrackerRawPanel playerId={playerId} />}
 
           {/* Snapshot history */}
           <div className="rounded-xl border border-border bg-card overflow-hidden">
