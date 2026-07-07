@@ -4,12 +4,21 @@ import { fetchApexProfile, extractMetrics } from "./apex.js";
 import { fetchTrackerMetrics } from "./tracker.js";
 import { logger } from "./logger.js";
 import { writePollLog, prunePollLog } from "./pollLogDb.js";
+import { rollupOldSnapshots } from "./retention.js";
 
 export type PollResult = { name: string; status: "updated" | "error"; error: string | null };
 
 export type SchedulerState = {
   enabled: boolean;
+  // When adaptive is true, the scheduler ignores intervalHours and instead alternates
+  // between activeIntervalHours (recent squad activity detected) and idleIntervalHours
+  // (no one's playing) based on the last poll's findings. intervalHours remains available
+  // as a fixed-interval fallback for anyone who wants to disable adaptive behavior.
+  adaptive: boolean;
   intervalHours: number;
+  activeIntervalHours: number;
+  idleIntervalHours: number;
+  lastActive: boolean;
   lastRunAt: Date | null;
   nextRunAt: Date | null;
   lastResults: PollResult[];
@@ -21,6 +30,11 @@ export type SchedulerState = {
 // and stat-delta activity, without hammering the upstream APIs.
 const DEFAULT_INTERVAL_HOURS = 0.25;
 
+// Adaptive polling bounds: poll tight while the squad is actively playing, back off
+// hard when idle so we're not burning API budget for nothing overnight or on off-days.
+const DEFAULT_ACTIVE_INTERVAL_HOURS = 0.25; // 15 min
+const DEFAULT_IDLE_INTERVAL_HOURS = 2; // 2 hr
+
 // Small delay between sequential per-player fetches within one poll cycle so we
 // don't burst N requests back-to-back into a per-second rate limit as the squad grows.
 const PLAYER_FETCH_DELAY_MS = 350;
@@ -31,7 +45,11 @@ function sleep(ms: number): Promise<void> {
 
 const state: SchedulerState = {
   enabled: true,
+  adaptive: true,
   intervalHours: DEFAULT_INTERVAL_HOURS,
+  activeIntervalHours: DEFAULT_ACTIVE_INTERVAL_HOURS,
+  idleIntervalHours: DEFAULT_IDLE_INTERVAL_HOURS,
+  lastActive: false,
   lastRunAt: null,
   nextRunAt: null,
   lastResults: [],
@@ -251,6 +269,45 @@ async function persistMvpRecord() {
   logger.info({ mvp: winner.name, score: winner.score }, "MVP record persisted");
 }
 
+// ─── Adaptive polling: detect whether the squad is actively playing ───────────
+
+// Looks at each active player's two most recent snapshots. Treats the squad as
+// "active" if any player's realtimeState says online, or if kills/damage/rankScore
+// moved between the last two snapshots — i.e. someone is clearly mid-session.
+async function computeSquadActivity(): Promise<boolean> {
+  const activePlayers = await db
+    .select()
+    .from(playersTable)
+    .where(eq(playersTable.active, true));
+
+  for (const player of activePlayers) {
+    const snaps = await db
+      .select({
+        kills: statSnapshotsTable.kills,
+        damage: statSnapshotsTable.damage,
+        rankScore: statSnapshotsTable.rankScore,
+        realtimeState: statSnapshotsTable.realtimeState,
+      })
+      .from(statSnapshotsTable)
+      .where(eq(statSnapshotsTable.playerId, player.id))
+      .orderBy(desc(statSnapshotsTable.capturedAt))
+      .limit(2);
+
+    if (snaps.length === 0) continue;
+    if (snaps[0].realtimeState?.toLowerCase() === "online") return true;
+    if (snaps.length < 2) continue;
+
+    const [latest, prev] = snaps;
+    const moved =
+      (latest.kills ?? 0) !== (prev.kills ?? 0) ||
+      (latest.damage ?? 0) !== (prev.damage ?? 0) ||
+      (latest.rankScore ?? 0) !== (prev.rankScore ?? 0);
+    if (moved) return true;
+  }
+
+  return false;
+}
+
 // ─── Scheduler internals ──────────────────────────────────────────────────────
 
 function scheduleNext() {
@@ -259,7 +316,12 @@ function scheduleNext() {
     state.nextRunAt = null;
     return;
   }
-  const ms = state.intervalHours * 60 * 60 * 1000;
+  const hours = state.adaptive
+    ? state.lastActive
+      ? state.activeIntervalHours
+      : state.idleIntervalHours
+    : state.intervalHours;
+  const ms = hours * 60 * 60 * 1000;
   state.nextRunAt = new Date(Date.now() + ms);
   timer = setTimeout(runScheduled, ms);
 }
@@ -268,7 +330,10 @@ let lastPruneAt = 0;
 const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 async function runScheduled() {
-  logger.info({ intervalHours: state.intervalHours }, "Scheduled stat poll starting");
+  logger.info(
+    { adaptive: state.adaptive, intervalHours: state.intervalHours, lastActive: state.lastActive },
+    "Scheduled stat poll starting",
+  );
   state.lastRunAt = new Date();
   try {
     state.lastResults = await pollAllPlayers();
@@ -279,10 +344,18 @@ async function runScheduled() {
     logger.error({ err }, "Scheduled stat poll crashed");
   }
 
-  // Prune poll_log rows older than 14 days once a day (non-fatal, non-blocking on failure).
+  // Re-evaluate activity after this poll so the *next* interval reflects what we just saw.
+  try {
+    state.lastActive = await computeSquadActivity();
+  } catch (err) {
+    logger.warn({ err }, "Squad activity check failed — keeping previous adaptive state");
+  }
+
+  // Daily maintenance: prune poll_log and roll up old snapshots (non-fatal, non-blocking).
   if (Date.now() - lastPruneAt > PRUNE_INTERVAL_MS) {
     lastPruneAt = Date.now();
     prunePollLog(14).catch((err) => logger.warn({ err }, "Poll log prune failed"));
+    rollupOldSnapshots(30).catch((err) => logger.warn({ err }, "Snapshot rollup failed"));
   }
 
   scheduleNext();
@@ -291,7 +364,10 @@ async function runScheduled() {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 export async function startScheduler() {
-  logger.info({ intervalHours: state.intervalHours }, "Auto-refresh scheduler started");
+  logger.info(
+    { adaptive: state.adaptive, intervalHours: state.intervalHours },
+    "Auto-refresh scheduler started",
+  );
 
   try {
     const [latest] = await db
@@ -300,7 +376,11 @@ export async function startScheduler() {
       .orderBy(desc(statSnapshotsTable.capturedAt))
       .limit(1);
 
-    const intervalMs = state.intervalHours * 60 * 60 * 1000;
+    // We don't know the squad's activity state before the first poll, so use the
+    // active interval as the freshness bar on startup — better to poll a bit early
+    // than to sit on stale data for up to idleIntervalHours before we've even checked.
+    const baselineHours = state.adaptive ? state.activeIntervalHours : state.intervalHours;
+    const intervalMs = baselineHours * 60 * 60 * 1000;
     const ageMs = latest ? Date.now() - latest.capturedAt.getTime() : Infinity;
 
     if (ageMs >= intervalMs) {
@@ -328,9 +408,18 @@ export function getSchedulerState(): SchedulerState {
   return { ...state };
 }
 
-export function setSchedulerConfig(opts: { enabled?: boolean; intervalHours?: number }) {
+export function setSchedulerConfig(opts: {
+  enabled?: boolean;
+  adaptive?: boolean;
+  intervalHours?: number;
+  activeIntervalHours?: number;
+  idleIntervalHours?: number;
+}) {
   if (opts.enabled !== undefined) state.enabled = opts.enabled;
+  if (opts.adaptive !== undefined) state.adaptive = opts.adaptive;
   if (opts.intervalHours !== undefined) state.intervalHours = opts.intervalHours;
+  if (opts.activeIntervalHours !== undefined) state.activeIntervalHours = opts.activeIntervalHours;
+  if (opts.idleIntervalHours !== undefined) state.idleIntervalHours = opts.idleIntervalHours;
   scheduleNext();
 }
 
