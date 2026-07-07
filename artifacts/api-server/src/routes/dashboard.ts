@@ -281,6 +281,14 @@ router.get("/dashboard/serverstatus", async (req, res) => {
       return;
     }
     const data = await apiRes.json();
+
+    // We haven't been able to confirm the exact shape of this endpoint's response
+    // against a live account, and the frontend's parsing has previously shown
+    // "Status unavailable" with zero visibility into why. Log the raw shape once
+    // per cache period so a shape mismatch is actually diagnosable via /debug or
+    // server logs instead of silently failing.
+    logger.info({ keys: Object.keys(data as Record<string, unknown>), sample: JSON.stringify(data).slice(0, 500) }, "Server status raw response shape");
+
     // Cache for 90 seconds
     statusCache = { data, expiresAt: now + 90 * 1000 };
     res.json(data);

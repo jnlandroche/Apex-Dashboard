@@ -305,7 +305,7 @@ async function computeSquadActivity(): Promise<boolean> {
       .limit(2);
 
     if (snaps.length === 0) continue;
-    if (snaps[0].realtimeState?.toLowerCase() === "online") return true;
+    if (snaps[0].realtimeState?.toLowerCase() === "online" || snaps[0].realtimeState?.toLowerCase() === "in_game") return true;
     if (snaps.length < 2) continue;
 
     const [latest, prev] = snaps;

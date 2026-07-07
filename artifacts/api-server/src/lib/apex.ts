@@ -20,8 +20,8 @@ export type ApexProfile = {
   global?: unknown;
   raw: unknown;
   history: ApexHistoryEntry[];
-  // Raw realtime.currentState from mozambiquehe.re, e.g. "online" | "offline" | "in lobby".
-  // Best-effort signal for session detection, not guaranteed reliable for every account.
+  // Derived from mozambiquehe.re's real realtime.isOnline/isInGame fields (NOT
+  // currentState, which doesn't exist in the actual API): "in_game" | "online" | "offline" | null.
   realtimeState: string | null;
 };
 
@@ -76,8 +76,13 @@ export async function fetchApexProfile(
   const global = (data.global ?? {}) as Record<string, unknown>;
   const rank = (global.rank ?? {}) as Record<string, unknown>;
   const realtime = (data.realtime ?? {}) as Record<string, unknown>;
-  const realtimeState =
-    typeof realtime.currentState === "string" ? realtime.currentState : null;
+
+  // The actual mozambiquehe.re response does NOT have realtime.currentState — that
+  // field doesn't exist in the real API (verified against the public docs and
+  // community client libraries). The real fields are isOnline (0/1), isInGame (0/1),
+  // and lobbyState ("open"/"invite"). currentState is kept as a fallback in case some
+  // account/version genuinely returns it, but isOnline/isInGame is what actually works.
+  const realtimeState = deriveRealtimeState(realtime);
 
   const rawHistory = Array.isArray(data.history) ? data.history : [];
   const history: ApexHistoryEntry[] = rawHistory
@@ -105,6 +110,23 @@ export async function fetchApexProfile(
     history,
     realtimeState,
   };
+}
+
+// Normalizes mozambiquehe.re's realtime block into one of: "in_game" | "online" | "offline" | null.
+// Prefers isInGame/isOnline (the fields that actually exist) over currentState (which
+// doesn't, per the real API docs — kept only as a defensive fallback).
+function deriveRealtimeState(realtime: Record<string, unknown>): string | null {
+  if (typeof realtime.currentState === "string") return realtime.currentState;
+
+  const isInGame = Number(realtime.isInGame ?? 0);
+  const isOnline = Number(realtime.isOnline ?? 0);
+
+  if (isInGame === 1) return "in_game";
+  if (isOnline === 1) return "online";
+  if (realtime.isInGame !== undefined || realtime.isOnline !== undefined) return "offline";
+
+  // Neither field present at all — API didn't give us anything to go on.
+  return null;
 }
 
 type TotalEntry = { name?: string; value?: number | string };

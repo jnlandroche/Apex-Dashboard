@@ -500,12 +500,15 @@ export function Dashboard() {
     for (const [region, val] of Object.entries(serverRaw)) {
       if (!val || typeof val !== "object") continue;
       const v = val as Record<string, unknown>;
-      // Skip nested objects like "otherPlatforms" (no ResponseTime at top level)
-      const ping = Number(v.ResponseTime ?? v.responseTime ?? 0);
-      const status = String(v.Status ?? v.status ?? "UNKNOWN");
-      if (ping > 0) {
-        results.push({ region, ping, status });
-      }
+      // A real per-region entry has some recognizable status field; nested non-server
+      // objects (e.g. "otherPlatforms") won't. Previously this required ping > 0 as the
+      // signal a row was real, which meant a wrong/missing ResponseTime key silently
+      // dropped every entry — this only requires an actual status field to be present.
+      const statusRaw = v.Status ?? v.status ?? v.state ?? v.State;
+      if (statusRaw == null) continue;
+      const ping = Number(v.ResponseTime ?? v.responseTime ?? v.response_time ?? v.ping ?? 0);
+      const status = String(statusRaw).toUpperCase();
+      results.push({ region, ping, status });
     }
     return results.sort((a, b) => a.ping - b.ping).slice(0, 6);
   };
